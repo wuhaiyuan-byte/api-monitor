@@ -1,0 +1,1371 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Monitor</title>
+    <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/element-plus/2.4.4/index.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;510;590&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg-primary: #f5f7f5;
+            --bg-secondary: #ffffff;
+            --bg-surface: #ffffff;
+            --bg-elevated: #fafbf9;
+            --text-primary: #1a2e1a;
+            --text-secondary: #4a5f4a;
+            --text-muted: #7a8b7a;
+            --text-subtle: #a5b5a5;
+            --accent: #2d7a4f;
+            --accent-hover: #3d9a6f;
+            --accent-bg: #e8f5ed;
+            --success: #22a05a;
+            --success-bg: #d4f5e4;
+            --danger: #c45c5c;
+            --danger-bg: #fdf2f2;
+            --warning: #d4a574;
+            --border: #d4e4d4;
+            --border-subtle: #e8f0e8;
+            --radius: 10px;
+            --radius-sm: 6px;
+            --shadow: 0 2px 12px rgba(45, 122, 79, 0.08);
+        }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-size: 14px;
+            line-height: 1.5;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* Header */
+        .header {
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-subtle);
+            padding: 0 32px;
+            height: 56px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 1px 3px rgba(45, 122, 79, 0.05);
+        }
+        .logo {
+            font-size: 15px;
+            font-weight: 590;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            letter-spacing: -0.01em;
+        }
+        .logo-icon {
+            width: 22px;
+            height: 22px;
+            background: linear-gradient(135deg, var(--accent), #4aba7d);
+            border-radius: 6px;
+        }
+        .ws-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+        .ws-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+        .ws-dot.connected { background: var(--success); }
+        .ws-dot.disconnected { background: var(--danger); }
+
+        /* Main Layout */
+        .main {
+            padding: 32px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        /* Page Header */
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+        .page-title {
+            font-size: 28px;
+            font-weight: 590;
+            letter-spacing: -0.02em;
+            color: var(--text-primary);
+        }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 4px;
+            margin-bottom: 28px;
+            background: var(--bg-secondary);
+            padding: 4px;
+            border-radius: var(--radius);
+            width: fit-content;
+            border: 1px solid var(--border-subtle);
+        }
+        .tab {
+            padding: 8px 16px;
+            font-size: 13px;
+            font-weight: 510;
+            color: var(--text-muted);
+            cursor: pointer;
+            border-radius: var(--radius-sm);
+            border: none;
+            background: none;
+            transition: all 0.15s;
+        }
+        .tab:hover { color: var(--accent); }
+        .tab.active { color: white; background: var(--accent); }
+
+        /* Buttons */
+        .btn {
+            padding: 8px 16px;
+            border-radius: var(--radius-sm);
+            font-size: 13px;
+            font-weight: 510;
+            cursor: pointer;
+            border: none;
+            transition: all 0.15s;
+            font-family: inherit;
+        }
+        .btn-primary {
+            background: var(--accent);
+            color: white;
+            box-shadow: 0 2px 8px rgba(45, 122, 79, 0.25);
+        }
+        .btn-primary:hover { background: var(--accent-hover); transform: translateY(-1px); }
+        .btn-ghost {
+            background: var(--bg-secondary);
+            color: var(--text-secondary);
+            border: 1px solid var(--border);
+        }
+        .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+        .btn-danger {
+            background: var(--danger-bg);
+            color: var(--danger);
+            border: 1px solid #f0c4c4;
+        }
+        .btn-danger:hover { background: #fce8e8; }
+        .btn-small { padding: 6px 12px; font-size: 12px; }
+
+        /* Cards */
+        .card {
+            background: var(--bg-surface);
+            border-radius: var(--radius);
+            border: 1px solid var(--border-subtle);
+            padding: 20px;
+            margin-bottom: 16px;
+            box-shadow: var(--shadow);
+        }
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+        .card-title {
+            font-size: 12px;
+            font-weight: 590;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        /* Monitor Grid */
+        .monitor-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+            gap: 16px;
+        }
+        .monitor-card {
+            background: var(--bg-surface);
+            border-radius: var(--radius);
+            border: 1px solid var(--border-subtle);
+            padding: 16px;
+            cursor: pointer;
+            transition: all 0.2s;
+            box-shadow: var(--shadow);
+        }
+        .monitor-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(45, 122, 79, 0.12);
+        }
+        .monitor-card.normal { border-left: 3px solid var(--success); }
+        .monitor-card.anomaly { border-left: 3px solid var(--danger); }
+        .monitor-card.error { border-left: 3px solid var(--danger); }
+        .monitor-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 8px;
+        }
+        .monitor-name {
+            font-size: 14px;
+            font-weight: 590;
+            color: var(--text-primary);
+        }
+        .monitor-status {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            flex-shrink: 0;
+            margin-top: 4px;
+        }
+        .monitor-status.normal { background: var(--success); }
+        .monitor-status.anomaly { background: var(--danger); }
+        .monitor-url {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-bottom: 12px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            font-family: 'SF Mono', 'Monaco', monospace;
+        }
+        .monitor-stats {
+            display: flex;
+            gap: 24px;
+        }
+        .stat {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .stat-label {
+            font-size: 10px;
+            color: var(--text-subtle);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-weight: 500;
+        }
+        .stat-value {
+            font-size: 14px;
+            font-weight: 590;
+            color: var(--text-primary);
+        }
+        .stat-value.good { color: var(--success); }
+        .stat-value.bad { color: var(--danger); }
+
+        /* Table */
+        .table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .table th {
+            text-align: left;
+            padding: 12px 16px;
+            font-size: 11px;
+            font-weight: 590;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+        .table td {
+            padding: 14px 16px;
+            font-size: 13px;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+        .table tr:last-child td { border-bottom: none; }
+        .table tr:hover td { background: var(--accent-bg); }
+
+        /* Tags */
+        .tag {
+            display: inline-flex;
+            align-items: center;
+            padding: 4px 10px;
+            border-radius: 9999px;
+            font-size: 11px;
+            font-weight: 510;
+            gap: 4px;
+        }
+        .tag.active { background: var(--success-bg); color: var(--success); }
+        .tag.inactive { background: var(--bg-elevated); color: var(--text-muted); border: 1px solid var(--border); }
+        .tag.error { background: var(--danger-bg); color: var(--danger); }
+
+        /* Filter */
+        .filter-group { display: flex; gap: 8px; margin-bottom: 20px; }
+        .filter-btn {
+            padding: 6px 14px;
+            border-radius: 9999px;
+            font-size: 12px;
+            font-weight: 510;
+            border: 1px solid var(--border);
+            background: var(--bg-secondary);
+            color: var(--text-muted);
+            cursor: pointer;
+        }
+        .filter-btn:hover { border-color: var(--accent); color: var(--accent); }
+        .filter-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
+
+        /* Dialog */
+        .dialog-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            backdrop-filter: blur(4px);
+        }
+        .dialog {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            width: 1100px;
+            max-height: 90vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            border: 1px solid var(--border);
+            box-shadow: 0 25px 50px rgba(45, 122, 79, 0.15);
+        }
+        .dialog-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .dialog-title {
+            font-size: 14px;
+            font-weight: 590;
+        }
+        .dialog-close {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            border: none;
+            background: var(--bg-primary);
+            cursor: pointer;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-muted);
+        }
+        .dialog-close:hover { background: var(--border); color: var(--text-primary); }
+        .dialog-body { flex: 1; display: flex; overflow: hidden; }
+        .dialog-left { width: 50%; padding: 20px; border-right: 1px solid var(--border-subtle); overflow-y: auto; background: var(--bg-secondary); }
+        .dialog-right { width: 50%; padding: 20px; display: flex; flex-direction: column; background: #1e1e1e; }
+
+        /* Time Range Selector */
+        .time-range-selector { display: flex; gap: 4px; }
+        .time-btn {
+            padding: 6px 12px;
+            border: 1px solid var(--border);
+            background: var(--bg-secondary);
+            border-radius: var(--radius-sm);
+            font-size: 12px;
+            font-weight: 510;
+            cursor: pointer;
+            color: var(--text-muted);
+        }
+        .time-btn:hover { border-color: var(--accent); color: var(--accent); }
+        .time-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
+
+        /* URL Bar */
+        .url-bar { display: flex; gap: 8px; margin-bottom: 16px; }
+        .method-select { width: 100px; }
+        .method-select .el-input__wrapper { background: var(--bg-primary) !important; border: 1px solid var(--border) !important; border-radius: var(--radius-sm) !important; }
+        .method-select .el-input__inner { color: var(--accent) !important; font-weight: 590; }
+        .url-input .el-input__wrapper { background: var(--bg-primary) !important; border: 1px solid var(--border) !important; border-radius: var(--radius-sm) !important; }
+        .url-input input { color: var(--text-primary) !important; font-family: 'SF Mono', monospace !important; font-size: 13px; }
+
+        /* Form Tabs */
+        .form-tabs { display: flex; border-bottom: 1px solid var(--border-subtle); margin-bottom: 16px; gap: 4px; }
+        .form-tab {
+            padding: 8px 14px;
+            font-size: 12px;
+            font-weight: 510;
+            color: var(--text-muted);
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -1px;
+        }
+        .form-tab:hover { color: var(--accent); }
+        .form-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+        /* KV Editor */
+        .kv-editor { background: var(--bg-primary); border-radius: var(--radius); padding: 12px; }
+        .kv-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+        .kv-row .el-input { flex: 1; }
+        .kv-row .el-input .el-input__wrapper { background: var(--bg-secondary) !important; border: 1px solid var(--border) !important; border-radius: var(--radius-sm) !important; }
+        .kv-row .el-input .el-input__inner { color: var(--text-primary) !important; font-size: 13px; }
+        .kv-header { font-size: 11px; color: var(--text-subtle); font-weight: 510; margin-bottom: 8px; display: flex; gap: 8px; letter-spacing: 0.03em; }
+        .kv-header span { flex: 1; text-transform: uppercase; }
+
+        /* Response Panel */
+        .response-header { display: flex; align-items: center; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid #333; margin-bottom: 12px; }
+        .response-title { color: #d4d4d4; font-weight: 510; font-size: 13px; }
+        .response-status { padding: 4px 10px; border-radius: 9999px; font-size: 11px; font-weight: 590; }
+        .response-status.success { background: #d4f5e4; color: #22a05a; }
+        .response-status.error { background: #fdf2f2; color: #c45c5c; }
+        .response-status.info { background: var(--accent-bg); color: var(--accent); }
+        .response-time { color: #888; font-size: 12px; }
+        .response-tabs { display: flex; gap: 4px; margin-bottom: 12px; }
+        .resp-tab { padding: 6px 12px; font-size: 11px; color: #888; cursor: pointer; border-radius: var(--radius-sm); font-weight: 510; }
+        .resp-tab:hover { color: #d4d4d4; }
+        .resp-tab.active { background: #2d2d2d; color: #d4d4d4; }
+        .response-body {
+            color: #d4d4d4;
+            font-family: 'SF Mono', Monaco, monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            word-break: break-all;
+            flex: 1;
+            overflow-y: auto;
+        }
+        .response-empty { color: #666; text-align: center; padding: 40px; font-size: 13px; }
+
+        /* Settings Form */
+        .settings-form { max-width: 480px; }
+        .settings-form .el-form-item__label { color: var(--text-secondary); font-weight: 500; font-size: 13px; }
+        .settings-form .el-input__wrapper { background: var(--bg-primary) !important; border: 1px solid var(--border) !important; border-radius: var(--radius-sm) !important; }
+        .settings-form .el-input__inner { color: var(--text-primary) !important; }
+
+        /* Auth Section */
+        .auth-section { padding: 12px 0; }
+        .auth-empty { color: var(--text-muted); text-align: center; padding: 20px; font-size: 13px; }
+
+        /* Footer */
+        .dialog-footer { padding: 16px 20px; border-top: 1px solid var(--border-subtle); display: flex; justify-content: space-between; align-items: center; }
+
+        /* Empty State */
+        .empty { text-align: center; padding: 80px 20px; }
+        .empty-icon { font-size: 40px; margin-bottom: 12px; opacity: 0.4; }
+        .empty-text { font-size: 14px; color: var(--text-muted); margin-bottom: 16px; }
+
+        /* Alert Items */
+        .alert-item {
+            padding: 14px 16px;
+            border-radius: var(--radius);
+            margin-bottom: 10px;
+        }
+        .alert-item.unresolved { background: var(--danger-bg); border: 1px solid #f0c4c4; }
+        .alert-item.resolved { background: var(--accent-bg); border: 1px solid #d4e8d8; }
+        .alert-time { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
+        .alert-desc { font-size: 13px; color: var(--text-secondary); }
+
+        /* Chart Dialog */
+        .chart-container { height: 380px; background: var(--bg-primary); border-radius: var(--radius); padding: 16px; }
+
+        /* Actions */
+        .action-btn {
+            padding: 6px 12px;
+            border-radius: var(--radius-sm);
+            font-size: 12px;
+            font-weight: 510;
+            border: none;
+            cursor: pointer;
+            font-family: inherit;
+        }
+        .action-btn.primary { background: var(--accent); color: white; }
+        .action-btn.danger { background: transparent; color: var(--danger); border: 1px solid var(--danger); }
+
+        /* Switch */
+        .el-switch.is-checked .el-switch__core { background-color: var(--accent) !important; }
+
+        /* Element Plus Overrides */
+        .el-input__wrapper { background: var(--bg-primary) !important; border: 1px solid var(--border) !important; box-shadow: none !important; border-radius: var(--radius-sm) !important; }
+        .el-input__inner { color: var(--text-primary) !important; }
+        .el-input-number .el-input__wrapper { padding-left: 8px; padding-right: 8px; }
+        .el-radio-button__inner { background: var(--bg-primary); border-color: var(--border); color: var(--text-muted); }
+        .el-radio-button__original-radio:checked + .el-radio-button__inner { background-color: var(--accent); border-color: var(--accent); color: white; }
+        .el-form-item { margin-bottom: 16px; }
+        .el-form-item__label { color: var(--text-secondary); font-size: 13px; font-weight: 500; }
+        .el-textarea__inner { background: var(--bg-primary) !important; border: 1px solid var(--border) !important; color: var(--text-primary) !important; font-family: 'SF Mono', monospace; }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <header class="header">
+            <div class="logo">
+                <div class="logo-icon"></div>
+                <span>API Monitor</span>
+            </div>
+            <div class="ws-indicator">
+                <div class="ws-dot" :class="websocketStatus"></div>
+                <span>{{ websocketStatus === 'connected' ? 'Connected' : 'Disconnected' }}</span>
+            </div>
+        </header>
+
+        <main class="main">
+            <!-- Main Tabs -->
+            <div class="tabs" style="margin-bottom: 24px;">
+                <button class="tab" :class="{active: activeTab === 'dashboard'}" @click="activeTab = 'dashboard'">Dashboard</button>
+                <button class="tab" :class="{active: activeTab === 'alerts'}" @click="switchToAlerts">Alerts</button>
+                <button class="tab" :class="{active: activeTab === 'config'}" @click="activeTab = 'config'">Config</button>
+                <button class="tab" :class="{active: activeTab === 'settings'}" @click="switchToSettings">Settings</button>
+            </div>
+
+            <!-- Dashboard Tab -->
+            <div v-if="activeTab === 'dashboard'">
+                <div class="page-header">
+                    <h1 class="page-title">Monitor Overview</h1>
+                    <button class="btn btn-primary" @click="openAddDialog">+ Add Monitor</button>
+                </div>
+                <div v-if="monitors.length === 0" class="empty">
+                    <div class="empty-icon">📊</div>
+                    <div class="empty-text">No monitors configured</div>
+                    <button class="btn btn-primary" @click="openAddDialog">Add Your First Monitor</button>
+                </div>
+                <div v-else class="monitor-grid">
+                    <div v-for="monitor in monitors" :key="monitor.id" class="monitor-card" :class="getMonitorStatus(monitor)" @click="openMonitorDetail(monitor)">
+                        <div class="monitor-header">
+                            <span class="monitor-name">{{ monitor.name }}</span>
+                            <div class="monitor-status" :class="getMonitorStatus(monitor)"></div>
+                        </div>
+                        <div class="monitor-url">{{ monitor.url }}</div>
+                        <div class="monitor-stats">
+                            <div class="stat">
+                                <span class="stat-label">Response</span>
+                                <span class="stat-value" :class="getResponseTimeClass(monitor)">{{ monitor.last_response_time || '-' }} ms</span>
+                            </div>
+                            <div class="stat">
+                                <span class="stat-label">Status</span>
+                                <span class="stat-value">{{ monitor.last_status === 'normal' ? 'OK' : (monitor.last_status || '-') }}</span>
+                            </div>
+                            <div class="stat">
+                                <span class="stat-label">Last Check</span>
+                                <span class="stat-value">{{ formatRelativeTime(monitor.last_check) }}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Alerts Tab -->
+            <div v-if="activeTab === 'alerts'">
+                <div class="page-header">
+                    <h1 class="page-title">Alert Center</h1>
+                    <div class="filter-group">
+                        <button class="filter-btn" :class="{active: alertFilter === 'all'}" @click="alertFilter = 'all'; fetchAlerts()">All</button>
+                        <button class="filter-btn" :class="{active: alertFilter === 'unresolved'}" @click="alertFilter = 'unresolved'; fetchAlerts()">Unresolved</button>
+                        <button class="filter-btn" :class="{active: alertFilter === 'resolved'}" @click="alertFilter = 'resolved'; fetchAlerts()">Resolved</button>
+                    </div>
+                </div>
+                <div v-if="filteredAlerts.length === 0" class="empty">
+                    <div class="empty-icon">🔔</div>
+                    <div class="empty-text">No alerts</div>
+                </div>
+                <div v-else>
+                    <div v-for="alert in filteredAlerts" :key="alert.id" class="alert-item" :class="alert.is_resolved ? 'resolved' : 'unresolved'">
+                        <div class="alert-time">{{ formatDate(alert.created_at) }}</div>
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <span style="font-weight: 590; margin-right: 8px; color: var(--text-primary);">{{ alert.monitor_name }}</span>
+                                <span class="tag" :class="alert.is_resolved ? 'active' : 'error'">{{ alert.is_resolved ? 'Resolved' : 'Active' }}</span>
+                            </div>
+                            <button v-if="!alert.is_resolved" class="action-btn primary" @click="resolveAlert(alert)">Mark Resolved</button>
+                        </div>
+                        <div class="alert-desc" style="margin-top: 8px;">{{ alert.description }}</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Config Tab -->
+            <div v-if="activeTab === 'config'">
+                <div class="page-header">
+                    <h1 class="page-title">Monitor Configuration</h1>
+                    <button class="btn btn-primary" @click="openAddDialog">+ Add Monitor</button>
+                </div>
+                <div class="card">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>URL</th>
+                                <th>Method</th>
+                                <th>Interval</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="monitor in monitors" :key="monitor.id">
+                                <td style="font-weight: 590;">{{ monitor.name }}</td>
+                                <td style="color: var(--text-muted); font-family: 'Berkeley Mono', monospace; font-size: 12px;">{{ monitor.url }}</td>
+                                <td><span class="tag inactive">{{ monitor.method }}</span></td>
+                                <td style="color: var(--text-muted);">{{ monitor.interval_seconds }}s</td>
+                                <td><span class="tag" :class="monitor.is_active ? 'active' : 'inactive'">{{ monitor.is_active ? 'Active' : 'Paused' }}</span></td>
+                                <td>
+                                    <button class="btn btn-ghost btn-small" style="margin-right: 8px;" @click="openEditDialog(monitor)">Edit</button>
+                                    <button class="btn btn-danger btn-small" @click="deleteMonitor(monitor.id)">Delete</button>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Settings Tab -->
+            <div v-if="activeTab === 'settings'">
+                <div class="page-header">
+                    <h1 class="page-title">Settings</h1>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">Email Notifications</span>
+                    </div>
+                    <el-form label-position="top" class="settings-form">
+                        <el-form-item label="Enable Email Alerts">
+                            <el-switch v-model="emailSettings.enabled" @change="saveEmailSettings"></el-switch>
+                        </el-form-item>
+                        <el-form-item label="SMTP Host">
+                            <el-input v-model="emailSettings.smtp_host" :disabled="!emailSettings.enabled" @blur="saveEmailSettings"></el-input>
+                        </el-form-item>
+                        <el-form-item label="SMTP Port">
+                            <el-input-number v-model="emailSettings.smtp_port" :disabled="!emailSettings.enabled" :min="1" :max="65535" style="width: 100%;" @change="saveEmailSettings"></el-input-number>
+                        </el-form-item>
+                        <el-form-item label="SMTP Username">
+                            <el-input v-model="emailSettings.smtp_user" :disabled="!emailSettings.enabled" @blur="saveEmailSettings"></el-input>
+                        </el-form-item>
+                        <el-form-item label="SMTP Password">
+                            <el-input v-model="emailSettings.smtp_password" type="password" :disabled="!emailSettings.enabled" @blur="saveEmailSettings"></el-input>
+                        </el-form-item>
+                        <el-form-item label="From Email">
+                            <el-input v-model="emailSettings.from_email" :disabled="!emailSettings.enabled" @blur="saveEmailSettings"></el-input>
+                        </el-form-item>
+                        <el-form-item label="To Emails (comma separated)">
+                            <el-input v-model="emailSettings.to_emails" :disabled="!emailSettings.enabled" @blur="saveEmailSettings"></el-input>
+                        </el-form-item>
+                        <el-form-item label="Use TLS">
+                            <el-switch v-model="emailSettings.use_tls" :disabled="!emailSettings.enabled" @change="saveEmailSettings"></el-switch>
+                        </el-form-item>
+                        <el-form-item>
+                            <button type="button" class="btn btn-ghost" :disabled="!emailSettings.enabled" @click="testEmailSettings">Send Test Email</button>
+                        </el-form-item>
+                    </el-form>
+                </div>
+            </div>
+        </main>
+
+        <!-- Detail Dialog -->
+        <div v-if="detailDialogVisible" class="dialog-overlay" @click.self="detailDialogVisible = false">
+            <div class="dialog" style="width: 900px;">
+                <div class="dialog-header">
+                    <span class="dialog-title">{{ selectedMonitor?.name }} - Response Time</span>
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <div class="time-range-selector">
+                            <button v-for="r in ['1h', '24h', '7d', '30d']" :key="r" class="time-btn" :class="{active: chartTimeRange === r}" @click="changeTimeRange(r)">{{ r }}</button>
+                        </div>
+                        <button class="dialog-close" @click="detailDialogVisible = false">×</button>
+                    </div>
+                </div>
+                <div class="dialog-body" style="padding: 20px; flex-direction: column;">
+                    <div class="chart-container">
+                        <canvas ref="chartCanvas"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Add/Edit Dialog -->
+        <div v-if="formDialogVisible" class="dialog-overlay" @click.self="formDialogVisible = false">
+            <div class="dialog">
+                <div class="dialog-header">
+                    <span class="dialog-title">{{ isEditMode ? 'Edit Monitor' : 'Add Monitor' }}</span>
+                    <button class="dialog-close" @click="formDialogVisible = false">×</button>
+                </div>
+                <div class="dialog-body">
+                    <div class="dialog-left">
+                        <div class="url-bar">
+                            <el-select v-model="monitorForm.method" class="method-select">
+                                <el-option label="GET" value="GET"></el-option>
+                                <el-option label="POST" value="POST"></el-option>
+                                <el-option label="PUT" value="PUT"></el-option>
+                                <el-option label="DELETE" value="DELETE"></el-option>
+                                <el-option label="PATCH" value="PATCH"></el-option>
+                            </el-select>
+                            <el-input v-model="monitorForm.url" class="url-input" placeholder="https://api.example.com/endpoint"></el-input>
+                        </div>
+
+                        <div class="form-tabs">
+                            <div class="form-tab" :class="{active: activeFormTab === 'params'}" @click="activeFormTab = 'params'">Params</div>
+                            <div class="form-tab" :class="{active: activeFormTab === 'headers'}" @click="activeFormTab = 'headers'">Headers</div>
+                            <div class="form-tab" :class="{active: activeFormTab === 'body'}" @click="activeFormTab = 'body'">Body</div>
+                            <div class="form-tab" :class="{active: activeFormTab === 'auth'}" @click="activeFormTab = 'auth'">Auth</div>
+                            <div class="form-tab" :class="{active: activeFormTab === 'settings'}" @click="activeFormTab = 'settings'">Settings</div>
+                        </div>
+
+                        <div v-show="activeFormTab === 'params'">
+                            <div class="kv-editor">
+                                <div class="kv-header"><span>Key</span><span>Value</span><span></span></div>
+                                <div v-for="(param, index) in monitorForm.queryParams" :key="index" class="kv-row">
+                                    <el-input v-model="param.key" placeholder="key" size="small"></el-input>
+                                    <el-input v-model="param.value" placeholder="value" size="small"></el-input>
+                                    <el-button type="danger" size="small" link @click="removeParam(index)">×</el-button>
+                                </div>
+                                <button type="button" class="btn btn-ghost btn-small" @click="addParam" style="margin-top: 8px;">+ Add Param</button>
+                            </div>
+                        </div>
+
+                        <div v-show="activeFormTab === 'headers'">
+                            <div class="kv-editor">
+                                <div class="kv-header"><span>Key</span><span>Value</span><span></span></div>
+                                <div v-for="(header, index) in monitorForm.headersList" :key="index" class="kv-row">
+                                    <el-input v-model="header.key" placeholder="key" size="small"></el-input>
+                                    <el-input v-model="header.value" placeholder="value" size="small"></el-input>
+                                    <el-button type="danger" size="small" link @click="removeHeader(index)">×</el-button>
+                                </div>
+                                <button type="button" class="btn btn-ghost btn-small" @click="addHeader" style="margin-top: 8px;">+ Add Header</button>
+                            </div>
+                        </div>
+
+                        <div v-show="activeFormTab === 'body'">
+                            <div style="margin-bottom: 12px;">
+                                <el-radio-group v-model="monitorForm.bodyType" size="small">
+                                    <el-radio-button label="none">none</el-radio-button>
+                                    <el-radio-button label="json">JSON</el-radio-button>
+                                    <el-radio-button label="text">Text</el-radio-button>
+                                </el-radio-group>
+                            </div>
+                            <el-input v-if="monitorForm.bodyType !== 'none'" v-model="monitorForm.body" type="textarea" :rows="8" placeholder='{"key": "value"}' style="font-family: monospace;"></el-input>
+                            <div v-else class="auth-empty">No body for this request</div>
+                        </div>
+
+                        <div v-show="activeFormTab === 'auth'">
+                            <div style="margin-bottom: 12px;">
+                                <el-radio-group v-model="monitorForm.authType" size="small">
+                                    <el-radio-button label="none">No Auth</el-radio-button>
+                                    <el-radio-button label="bearer">Bearer</el-radio-button>
+                                    <el-radio-button label="basic">Basic</el-radio-button>
+                                    <el-radio-button label="apikey">API Key</el-radio-button>
+                                </el-radio-group>
+                            </div>
+                            <div v-if="monitorForm.authType === 'bearer'" class="auth-section">
+                                <el-input v-model="monitorForm.bearerToken" placeholder="Bearer Token" size="large"></el-input>
+                            </div>
+                            <div v-else-if="monitorForm.authType === 'basic'" class="auth-section">
+                                <el-form label-width="80px">
+                                    <el-form-item label="Username"><el-input v-model="monitorForm.basicUsername" size="large"></el-input></el-form-item>
+                                    <el-form-item label="Password"><el-input v-model="monitorForm.basicPassword" type="password" size="large"></el-input></el-form-item>
+                                </el-form>
+                            </div>
+                            <div v-else-if="monitorForm.authType === 'apikey'" class="auth-section">
+                                <el-form label-width="100px">
+                                    <el-form-item label="Key Name"><el-input v-model="monitorForm.apikeyName" size="large"></el-input></el-form-item>
+                                    <el-form-item label="Key Value"><el-input v-model="monitorForm.apikeyValue" size="large"></el-input></el-form-item>
+                                    <el-form-item label="Add To">
+                                        <el-select v-model="monitorForm.apikeyLocation" style="width: 100%;">
+                                            <el-option label="Header" value="header"></el-option>
+                                            <el-option label="Query" value="query"></el-option>
+                                        </el-select>
+                                    </el-form-item>
+                                </el-form>
+                            </div>
+                            <div v-else class="auth-empty">This request doesn't need authentication</div>
+                        </div>
+
+                        <div v-show="activeFormTab === 'settings'">
+                            <el-form label-position="top" class="settings-form">
+                                <el-form-item label="Monitor Name"><el-input v-model="monitorForm.name" placeholder="Give it a name"></el-input></el-form-item>
+                                <el-form-item label="Expected Status"><el-input-number v-model="monitorForm.expected_status" :min="100" :max="599" style="width: 100%;"></el-input-number></el-form-item>
+                                <el-form-item label="Expected Body (Regex)"><el-input v-model="monitorForm.expected_body_regex" placeholder="e.g. ^.code.:.0"></el-input></el-form-item>
+                                <el-form-item label="Latency Threshold (ms)"><el-input-number v-model="monitorForm.latency_threshold_ms" :min="0" :max="300000" placeholder="空则使用统计阈值" style="width: 100%;"></el-input-number></el-form-item>
+                                <el-form-item label="Check Interval (seconds)"><el-input-number v-model="monitorForm.interval_seconds" :min="10" :max="3600" style="width: 100%;"></el-input-number></el-form-item>
+                                <el-form-item label="Timeout (seconds)"><el-input-number v-model="monitorForm.timeout_seconds" :min="1" :max="60" style="width: 100%;"></el-input-number></el-form-item>
+                            </el-form>
+                        </div>
+                    </div>
+
+                    <div class="dialog-right">
+                        <div class="response-header">
+                            <span class="response-title">Response</span>
+                            <span v-if="responsePanel.status" class="response-status" :class="responsePanel.statusType">{{ responsePanel.status }}</span>
+                            <span v-if="responsePanel.time" class="response-time">{{ responsePanel.time }}ms</span>
+                        </div>
+                        <div v-if="responsePanel.show" style="flex: 1; display: flex; flex-direction: column; overflow: hidden;">
+                            <div class="response-tabs">
+                                <div class="resp-tab" :class="{active: responsePanel.activeTab === 'request'}" @click="responsePanel.activeTab = 'request'">Request</div>
+                                <div class="resp-tab" :class="{active: responsePanel.activeTab === 'body'}" @click="responsePanel.activeTab = 'body'">Body</div>
+                                <div class="resp-tab" :class="{active: responsePanel.activeTab === 'headers'}" @click="responsePanel.activeTab = 'headers'">Headers</div>
+                            </div>
+                            <div v-if="responsePanel.activeTab === 'request'" class="response-body">{{ responsePanel.request }}</div>
+                            <div v-else-if="responsePanel.activeTab === 'body'" class="response-body">{{ responsePanel.body }}</div>
+                            <div v-else-if="responsePanel.activeTab === 'headers'" class="response-body">{{ JSON.stringify(responsePanel.headers, null, 2) }}</div>
+                        </div>
+                        <div v-else class="response-empty">Click "Send" to test your request</div>
+                    </div>
+                </div>
+                <div class="dialog-footer">
+                    <div style="display: flex; gap: 8px;">
+                        <button type="button" class="btn btn-ghost" :disabled="formSending" @click="sendTestRequest">{{ formSending ? 'Sending...' : 'Send' }}</button>
+                        <button type="button" class="btn btn-ghost" @click="submitForm">{{ isEditMode ? 'Update' : 'Create' }}</button>
+                    </div>
+                    <button type="button" class="dialog-close" @click="formDialogVisible = false">×</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/vue@3.4.0/dist/vue.global.prod.js"></script>
+    <script src="https://unpkg.com/element-plus@2.4.4/dist/index.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <script>
+        const { createApp, ref, reactive, computed, onMounted, nextTick } = Vue;
+        const { ElMessage } = ElementPlus;
+
+        const app = createApp({
+            setup() {
+                const API_BASE = window.location.origin;
+                
+                const activeTab = ref('dashboard');
+                const monitors = ref([]);
+                const alerts = ref([]);
+                const selectedMonitor = ref(null);
+                const chartData = ref([]);
+                let chartInstance = null;
+
+                const websocketStatus = ref('disconnected');
+                let ws = null;
+                let wsReconnectTimer = null;
+
+                const alertFilter = ref('unresolved');
+                const detailDialogVisible = ref(false);
+                const chartTimeRange = ref('1h');
+                const currentChartMonitorId = ref(null);
+                const formDialogVisible = ref(false);
+                const isEditMode = ref(false);
+                const formSubmitting = ref(false);
+                const formSending = ref(false);
+                const selectedMonitorId = ref(null);
+                const activeFormTab = ref('params');
+
+                const responsePanel = reactive({
+                    show: false,
+                    status: '',
+                    statusType: 'info',
+                    time: 0,
+                    body: '',
+                    headers: {},
+                    request: '',
+                    activeTab: 'request'
+                });
+
+                const monitorForm = reactive({
+                    name: '',
+                    url: '',
+                    method: 'GET',
+                    queryParams: [],
+                    headersList: [],
+                    bodyType: 'none',
+                    body: '',
+                    authType: 'none',
+                    bearerToken: '',
+                    basicUsername: '',
+                    basicPassword: '',
+                    apikeyName: '',
+                    apikeyValue: '',
+                    apikeyLocation: 'header',
+                    headers: '',
+                    expected_status: 200,
+                    expected_body_regex: '',
+                    latency_threshold_ms: null,
+                    interval_seconds: 60,
+                    timeout_seconds: 30
+                });
+
+                const emailSettings = reactive({
+                    enabled: false,
+                    smtp_host: 'smtp.gmail.com',
+                    smtp_port: 587,
+                    smtp_user: '',
+                    smtp_password: '',
+                    from_email: '',
+                    to_emails: '',
+                    use_tls: true
+                });
+
+                const filteredAlerts = computed(() => {
+                    if (alertFilter.value === 'all') return alerts.value;
+                    if (alertFilter.value === 'unresolved') return alerts.value.filter(a => !a.is_resolved);
+                    return alerts.value.filter(a => a.is_resolved);
+                });
+
+                function getMonitorStatus(monitor) {
+                    if (monitor.last_status === 'anomaly' || monitor.last_status === 'error') return 'anomaly';
+                    if (monitor.last_status === 'normal') return 'normal';
+                    return 'normal';
+                }
+
+                function getResponseTimeClass(monitor) {
+                    if (!monitor.last_response_time) return '';
+                    return monitor.last_response_time > 1000 ? 'bad' : 'good';
+                }
+
+function toBeijingDate(dateStr) {
+                    if (!dateStr) return null;
+                    const date = new Date(dateStr.endsWith('Z') ? dateStr : dateStr + 'Z');
+                    if (isNaN(date.getTime())) return null;
+                    return date;
+                }
+
+                function formatRelativeTime(dateStr) {
+                    if (!dateStr) return '-';
+                    const date = toBeijingDate(dateStr);
+                    if (!date) return '-';
+                    const now = new Date();
+                    const diff = Math.floor((now - date) / 1000);
+                    if (diff < 60) return `${diff}s ago`;
+                    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+                    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+                    return `${Math.floor(diff / 86400)}d ago`;
+                }
+
+                function formatDate(dateStr) {
+                    if (!dateStr) return '-';
+                    const date = toBeijingDate(dateStr);
+                    if (!date) return '-';
+                    return date.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
+                }
+
+                function formatChartLabel(dateStr, timeRange) {
+                    if (!dateStr) return '';
+                    const date = toBeijingDate(dateStr);
+                    if (!date) return '';
+                    if (timeRange === '1h' || timeRange === '24h') {
+                        return date.toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit', hour12: false });
+                    } else {
+                        return date.toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai', month: '2-digit', day: '2-digit' });
+                    }
+                }
+
+                async function fetchMonitors() {
+                    try {
+                        const response = await axios.get(`${API_BASE}/api/monitors`);
+                        monitors.value = response.data.map(m => ({
+                            ...m,
+                            last_response_time: null,
+                            last_status: null,
+                            last_check: null
+                        }));
+                        fetchAlertStatuses();
+                    } catch (error) {
+                        console.error('Failed to fetch monitors:', error);
+                    }
+                }
+
+                async function fetchAlertStatuses() {
+                    try {
+                        const promises = monitors.value.map(monitor => 
+                            axios.get(`${API_BASE}/api/monitors/${monitor.id}/checks?minutes=60`).then(response => {
+                                if (response.data.length > 0) {
+                                    const latest = response.data[0];
+                                    monitor.last_response_time = latest.response_time_ms ? Math.round(latest.response_time_ms) : null;
+                                    monitor.last_status = latest.is_anomaly ? 'anomaly' : 'normal';
+                                    monitor.last_check = latest.checked_at;
+                                }
+                            }).catch(() => {})
+                        );
+                        await Promise.all(promises);
+                    } catch (error) {
+                        console.error('Failed to fetch alert statuses:', error);
+                    }
+                }
+
+                async function fetchAlerts() {
+                    try {
+                        const response = await axios.get(`${API_BASE}/api/alerts?is_resolved=${alertFilter.value === 'unresolved' ? 'false' : ''}`);
+                        alerts.value = response.data;
+                    } catch (error) {
+                        console.error('Failed to fetch alerts:', error);
+                    }
+                }
+
+                async function fetchEmailSettings() {
+                    try {
+                        const response = await axios.get(`${API_BASE}/api/settings`);
+                        if (response.data.email_config) {
+                            Object.assign(emailSettings, response.data.email_config);
+                        }
+                    } catch (error) {
+                        console.error('Failed to fetch email settings:', error);
+                    }
+                }
+
+                async function saveEmailSettings() {
+                    try {
+                        await axios.post(`${API_BASE}/api/settings`, {
+                            email_enabled: emailSettings.enabled,
+                            email_config: { ...emailSettings }
+                        });
+                    } catch (error) {
+                        console.error('Failed to save email settings:', error);
+                    }
+                }
+
+                async function testEmailSettings() {
+                    try {
+                        await axios.post(`${API_BASE}/api/settings/test-email`, { ...emailSettings });
+                        ElMessage.success('Test email sent');
+                    } catch (error) {
+                        ElMessage.error('Failed to send test email: ' + (error.response?.data?.detail || error.message));
+                    }
+                }
+
+                function switchToAlerts() {
+                    activeTab.value = 'alerts';
+                    fetchAlerts();
+                }
+
+                function switchToSettings() {
+                    activeTab.value = 'settings';
+                    fetchEmailSettings();
+                }
+
+                function openMonitorDetail(monitor) {
+                    selectedMonitor.value = monitor;
+                    currentChartMonitorId.value = monitor.id;
+                    detailDialogVisible.value = true;
+                    loadChartData(monitor.id);
+                }
+
+                function changeTimeRange(range) {
+                    chartTimeRange.value = range;
+                    if (currentChartMonitorId.value) {
+                        loadChartData(currentChartMonitorId.value);
+                    }
+                }
+
+                async function loadChartData(monitorId) {
+                    try {
+                        const minutesMap = { '1h': 60, '24h': 1440, '7d': 10080, '30d': 43200 };
+                        const minutes = minutesMap[chartTimeRange.value] || 60;
+                        const response = await axios.get(`${API_BASE}/api/monitors/${monitorId}/checks?minutes=${minutes}`);
+                        chartData.value = response.data;
+                        await nextTick();
+                        renderChart();
+                    } catch (error) {
+                        console.error('Failed to load chart data:', error);
+                    }
+                }
+
+                function renderChart() {
+                    const canvas = document.querySelector('.chart-container canvas');
+                    if (!canvas || !chartData.value.length) return;
+                    if (chartInstance) chartInstance.destroy();
+                    const ctx = canvas.getContext('2d');
+                    const labels = chartData.value.map(d => formatChartLabel(d.checked_at, chartTimeRange.value)).reverse();
+                    const data = chartData.value.map(d => d.response_time_ms).reverse();
+                    const colors = chartData.value.map(d => d.is_anomaly ? '#f97583' : '#7170ff').reverse();
+                    chartInstance = new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: labels,
+                            datasets: [{
+                                label: 'Response Time (ms)',
+                                data: data,
+                                borderColor: '#7170ff',
+                                backgroundColor: 'rgba(113, 112, 255, 0.1)',
+                                tension: 0.3,
+                                pointRadius: data.map((_, i) => chartData.value[i].is_anomaly ? 6 : 3),
+                                pointBackgroundColor: colors,
+                                fill: true
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: { legend: { display: true, position: 'top', labels: { color: '#8a8f98' } } },
+                            scales: { 
+                                y: { beginAtZero: true, title: { display: true, text: 'ms', color: '#62666d' }, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#62666d' } },
+                                x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#62666d', maxTicksLimit: 12 } }
+                            }
+                        }
+                    });
+                }
+
+                function openAddDialog() {
+                    isEditMode.value = false;
+                    activeFormTab.value = 'params';
+                    Object.assign(monitorForm, {
+                        name: '',
+                        url: '',
+                        method: 'GET',
+                        queryParams: [{ key: '', value: '', enabled: true }],
+                        headersList: [{ key: '', value: '', enabled: true }],
+                        bodyType: 'none',
+                        body: '',
+                        authType: 'none',
+                        bearerToken: '',
+                        basicUsername: '',
+                        basicPassword: '',
+                        apikeyName: '',
+                        apikeyValue: '',
+                        apikeyLocation: 'header',
+                        headers: '',
+                        expected_status: 200,
+                        expected_body_regex: '',
+                        latency_threshold_ms: null,
+                        interval_seconds: 60,
+                        timeout_seconds: 30
+                    });
+                    responsePanel.show = false;
+                    formDialogVisible.value = true;
+                }
+
+                function openEditDialog(monitor) {
+                    try {
+                        isEditMode.value = true;
+                        activeFormTab.value = 'params';
+                        selectedMonitorId.value = monitor.id;
+                        const parsed = parseAuthAndBody(monitor);
+                        Object.assign(monitorForm, {
+                            name: monitor.name || '',
+                            url: monitor.url || '',
+                            method: monitor.method || 'GET',
+                            queryParams: [{ key: '', value: '', enabled: true }],
+                            headersList: parsed.headersList,
+                            bodyType: parsed.bodyType,
+                            body: parsed.body,
+                            authType: parsed.authType,
+                            bearerToken: parsed.bearerToken,
+                            basicUsername: parsed.basicUsername,
+                            basicPassword: parsed.basicPassword,
+                            apikeyName: parsed.apikeyName,
+                            apikeyValue: parsed.apikeyValue,
+                            apikeyLocation: parsed.apikeyLocation,
+                            headers: monitor.headers || '',
+                            expected_status: monitor.expected_status || 200,
+                            expected_body_regex: monitor.expected_body_regex || '',
+                            latency_threshold_ms: monitor.latency_threshold_ms || null,
+                            interval_seconds: monitor.interval_seconds || 60,
+                            timeout_seconds: monitor.timeout_seconds || 30
+                        });
+                        responsePanel.show = false;
+                        formDialogVisible.value = true;
+                    } catch (e) {
+                        console.error('openEditDialog error:', e);
+                        ElMessage.error('打开编辑框失败: ' + e.message);
+                    }
+                }
+
+                function parseAuthAndBody(monitor) {
+                    let authType = 'none', bearerToken = '', basicUsername = '', basicPassword = '';
+                    let apikeyName = '', apikeyValue = '', apikeyLocation = 'header';
+                    let body = '', bodyType = 'none';
+                    let headersList = [{ key: '', value: '', enabled: true }];
+                    try {
+                        if (monitor && monitor.headers) {
+                            const hdrs = typeof monitor.headers === 'string' ? JSON.parse(monitor.headers) : monitor.headers;
+                            if (hdrs && typeof hdrs === 'object' && hdrs !== null) {
+                                headersList = Object.entries(hdrs).map(([key, value]) => ({ key: String(key), value: String(value || ''), enabled: true }));
+                                if (!headersList.length) headersList = [{ key: '', value: '', enabled: true }];
+                                const authHeader = hdrs['Authorization'] || hdrs['authorization'] || '';
+                                if (authHeader && typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
+                                    authType = 'bearer'; bearerToken = authHeader.substring(7);
+                                } else if (authHeader && typeof authHeader === 'string' && authHeader.startsWith('Basic ')) {
+                                    authType = 'basic';
+                                }
+                            }
+                        }
+                    } catch (e) { headersList = [{ key: '', value: '', enabled: true }]; }
+                    try {
+                        if (monitor && monitor.body && typeof monitor.body === 'string') {
+                            bodyType = 'json';
+                            body = monitor.body;
+                        }
+                    } catch (e) { body = ''; }
+                    return { authType, bearerToken, basicUsername, basicPassword, apikeyName, apikeyValue, apikeyLocation, body, bodyType, headersList };
+                }
+
+                function addParam() { monitorForm.queryParams.push({ key: '', value: '', enabled: true }); }
+                function removeParam(index) { monitorForm.queryParams.splice(index, 1); }
+                function addHeader() { monitorForm.headersList.push({ key: '', value: '', enabled: true }); }
+                function removeHeader(index) { monitorForm.headersList.splice(index, 1); }
+
+                function buildRequestConfig() {
+                    let url = monitorForm.url;
+                    const queryEnabled = monitorForm.queryParams.filter(p => p.key && p.enabled);
+                    if (queryEnabled.length > 0) {
+                        const params = new URLSearchParams();
+                        queryEnabled.forEach(p => params.append(p.key, p.value));
+                        url += (url.includes('?') ? '&' : '?') + params.toString();
+                    }
+                    const headers = {};
+                    const headersEnabled = monitorForm.headersList.filter(h => h.key && h.enabled);
+                    headersEnabled.forEach(h => headers[h.key] = h.value);
+                    if (monitorForm.authType === 'bearer' && monitorForm.bearerToken) headers['Authorization'] = `Bearer ${monitorForm.bearerToken}`;
+                    else if (monitorForm.authType === 'basic' && monitorForm.basicUsername) headers['Authorization'] = 'Basic ' + btoa(`${monitorForm.basicUsername}:${monitorForm.basicPassword}`);
+                    else if (monitorForm.authType === 'apikey' && monitorForm.apikeyName) {
+                        if (monitorForm.apikeyLocation === 'header') headers[monitorForm.apikeyName] = monitorForm.apikeyValue;
+                        else url += (url.includes('?') ? '&' : '?') + `${monitorForm.apikeyName}=${monitorForm.apikeyValue}`;
+                    }
+                    return { url, headers };
+                }
+
+                async function sendTestRequest() {
+                    try {
+                        formSending.value = true;
+                        responsePanel.show = false;
+                        const { url, headers } = buildRequestConfig();
+                        const requestData = {
+                            url: url,
+                            method: monitorForm.method,
+                            headers: headers,
+                            body: monitorForm.bodyType !== 'none' && monitorForm.body ? monitorForm.body : null,
+                            timeout: monitorForm.timeout_seconds || 30
+                        };
+                        const curlCmd = `curl -X ${monitorForm.method} \\\n  '${url}' \\\n${Object.keys(headers).map(k => `  -H '${k}: ${headers[k]}'`).join(' \\\n')}${requestData.body ? ` \\\n  -d '${requestData.body}'` : ''}`;
+                        responsePanel.show = true;
+                        responsePanel.status = 'Sending...';
+                        responsePanel.statusType = 'info';
+                        responsePanel.request = curlCmd;
+                        responsePanel.body = '';
+                        responsePanel.headers = {};
+                        responsePanel.activeTab = 'request';
+                        const response = await axios.post(`${API_BASE}/api/test-request`, requestData, { timeout: 60000 });
+                        responsePanel.status = response.data.status;
+                        responsePanel.statusType = response.data.status >= 200 && response.data.status < 300 ? 'success' : 'error';
+                        responsePanel.time = response.data.time_ms;
+                        responsePanel.body = response.data.body;
+                        responsePanel.headers = response.data.headers;
+                        responsePanel.activeTab = 'body';
+                    } catch (error) {
+                        responsePanel.show = true;
+                        responsePanel.status = 'Error';
+                        responsePanel.statusType = 'error';
+                        responsePanel.body = error.response?.data?.detail || error.message;
+                        ElMessage.error('Failed to send: ' + (error.response?.data?.detail || error.message));
+                    } finally {
+                        formSending.value = false;
+                    }
+                }
+
+                async function submitForm() {
+                    try {
+                        formSubmitting.value = true;
+                        const { url, headers } = buildRequestConfig();
+                        const payload = {
+                            name: monitorForm.name,
+                            url: url,
+                            method: monitorForm.method,
+                            headers: Object.keys(headers).length > 0 ? JSON.stringify(headers) : null,
+                            expected_status: monitorForm.expected_status,
+                            expected_body_regex: monitorForm.expected_body_regex || null,
+                            latency_threshold_ms: monitorForm.latency_threshold_ms || null,
+                            interval_seconds: monitorForm.interval_seconds,
+                            timeout_seconds: monitorForm.timeout_seconds
+                        };
+                        if (monitorForm.bodyType !== 'none' && monitorForm.body) payload.body = monitorForm.body;
+                        if (isEditMode.value) {
+                            await axios.put(`${API_BASE}/api/monitors/${selectedMonitorId.value}`, payload);
+                            ElMessage.success('Updated');
+                        } else {
+                            await axios.post(`${API_BASE}/api/monitors`, payload);
+                            ElMessage.success('Created');
+                        }
+                        await fetchMonitors();
+                        formDialogVisible.value = false;
+                    } catch (error) {
+                        ElMessage.error(error.message);
+                    } finally {
+                        formSubmitting.value = false;
+                    }
+                }
+
+                async function deleteMonitor(monitorId) {
+                    if (!confirm('Delete this monitor?')) return;
+                    try {
+                        await axios.delete(`${API_BASE}/api/monitors/${monitorId}`);
+                        ElMessage.success('Deleted');
+                        await fetchMonitors();
+                    } catch (error) {
+                        ElMessage.error('Delete failed: ' + (error.response?.data?.detail || error.message));
+                    }
+                }
+
+                async function resolveAlert(alert) {
+                    try {
+                        await axios.put(`${API_BASE}/api/alerts/${alert.id}/resolve`);
+                        ElMessage.success('Alert resolved');
+                        fetchAlerts();
+                    } catch (error) {
+                        ElMessage.error('Failed to resolve alert');
+                    }
+                }
+
+                function connectWebSocket() {
+                    try {
+                        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                        ws = new WebSocket(`${protocol}//${window.location.host}/ws/status`);
+                        ws.onopen = () => {
+                            websocketStatus.value = 'connected';
+                            if (wsReconnectTimer) clearTimeout(wsReconnectTimer);
+                        };
+                        ws.onmessage = (event) => {
+                            try {
+                                const data = JSON.parse(event.data);
+                                if (data.type === 'status_update') {
+                                    const monitor = monitors.value.find(m => m.id === data.monitor_id);
+                                    if (monitor) {
+                                        monitor.last_response_time = data.response_time_ms ? Math.round(data.response_time_ms) : null;
+                                        monitor.last_status = data.is_anomaly ? 'anomaly' : 'normal';
+                                        monitor.last_check = data.last_check;
+                                    }
+                                } else if (data.type === 'new_alert') {
+                                    fetchAlerts();
+                                }
+                            } catch (e) {}
+                        };
+                        ws.onclose = () => {
+                            websocketStatus.value = 'disconnected';
+                            if (wsReconnectTimer) clearTimeout(wsReconnectTimer);
+                            wsReconnectTimer = setTimeout(connectWebSocket, 3000);
+                        };
+                        ws.onerror = () => {
+                            websocketStatus.value = 'disconnected';
+                        };
+                    } catch (e) {
+                        websocketStatus.value = 'disconnected';
+                    }
+                }
+
+                onMounted(() => {
+                    fetchMonitors();
+                    fetchAlerts();
+                    connectWebSocket();
+                });
+
+                return {
+                    activeTab, monitors, alerts, selectedMonitor, chartData,
+                    websocketStatus, alertFilter, filteredAlerts,
+                    detailDialogVisible, chartTimeRange, currentChartMonitorId, formDialogVisible, isEditMode, formSubmitting, formSending,
+                    activeFormTab, monitorForm, responsePanel, emailSettings,
+                    getMonitorStatus, getResponseTimeClass, formatRelativeTime, formatDate,
+                    switchToAlerts, switchToSettings, fetchEmailSettings, saveEmailSettings, testEmailSettings,
+                    openMonitorDetail, openAddDialog, openEditDialog,
+                    addParam, removeParam, addHeader, removeHeader,
+                    sendTestRequest, submitForm, deleteMonitor, resolveAlert,
+                    changeTimeRange, loadChartData
+                };
+            }
+        });
+
+        app.use(ElementPlus);
+        app.mount('#app');
+    </script>
+</body>
+</html>

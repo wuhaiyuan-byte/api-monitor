@@ -1,0 +1,11 @@
+fastapi>=0.110.0
+uvicorn[standard]
+sqlalchemy[asyncio]
+asyncpg
+aiosqlite
+httpx
+apscheduler
+python-dotenv
+pydantic
+pytest
+pytest-asyncio

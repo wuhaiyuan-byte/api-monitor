@@ -1,0 +1,32 @@
+version: '3.8'
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: apimon
+      POSTGRES_PASSWORD: apimon123
+      POSTGRES_DB: apimon
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U apimon"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://apimon:apimon123@db:5432/apimon
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app/backend
+
+volumes:
+  pgdata:

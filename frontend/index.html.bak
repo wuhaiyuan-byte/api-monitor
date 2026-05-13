@@ -1,0 +1,1131 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API 智能监控系统</title>
+    <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/element-plus/2.4.4/index.css">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f7fa; }
+        .header { background: #409EFF; color: white; padding: 20px; display: flex; justify-content: space-between; align-items: center; }
+        .header h1 { font-size: 24px; }
+        .ws-status { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+        .status-dot { width: 10px; height: 10px; border-radius: 50%; }
+        .status-dot.connected { background: #67C23A; }
+        .status-dot.reconnecting { background: #E6A23C; }
+        .status-dot.disconnected { background: #F56C6C; }
+        .main-content { padding: 20px; }
+        .monitor-card { cursor: pointer; transition: transform 0.2s; margin-bottom: 16px; }
+        .monitor-card:hover { transform: translateY(-4px); }
+        .status-indicator { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+        .status-indicator.normal { background: #67C23A; }
+        .status-indicator.anomaly { background: #F56C6C; }
+        .status-indicator.error { background: #F56C6C; }
+        .dialog-chart { width: 100%; height: 400px; }
+        .alert-type-tag { margin-right: 8px; }
+        .bruno-dialog .el-dialog__body { padding: 0; }
+        .bruno-layout { display: flex; height: 550px; }
+        .bruno-left { width: 50%; border-right: 1px solid #e4e7ed; display: flex; flex-direction: column; }
+        .bruno-right { width: 50%; display: flex; flex-direction: column; }
+        .bruno-url-bar { display: flex; gap: 8px; padding: 16px; background: #f5f7fa; border-bottom: 1px solid #e4e7ed; }
+        .bruno-tabs-nav { display: flex; background: #fafafa; border-bottom: 1px solid #e4e7ed; }
+        .bruno-tab-btn { padding: 12px 16px; cursor: pointer; font-size: 13px; color: #606266; border-bottom: 2px solid transparent; }
+        .bruno-tab-btn:hover { color: #409eff; }
+        .bruno-tab-btn.active { color: #409eff; border-bottom-color: #409eff; }
+        .bruno-tab-content { flex: 1; overflow: hidden; }
+        .tab-pane { height: 100%; overflow: auto; padding: 16px; }
+        .kv-editor { background: #fafafa; border-radius: 4px; padding: 12px; }
+        .kv-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+        .kv-row.header-row { color: #666; font-size: 12px; font-weight: 500; margin-bottom: 4px; }
+        .kv-row .el-input { flex: 1; }
+        .body-type-selector { margin-bottom: 12px; }
+        .body-empty, .auth-empty, .resp-empty { color: #999; text-align: center; padding: 40px; }
+        .auth-type-selector { margin-bottom: 12px; }
+        .auth-content { padding: 8px 0; }
+        .settings-form { max-width: 400px; }
+        .response-panel { flex: 1; display: flex; flex-direction: column; }
+        .response-header { padding: 12px 16px; background: #f5f7fa; border-bottom: 1px solid #e4e7ed; display: flex; align-items: center; gap: 12px; min-height: 44px; }
+        .response-title { font-weight: 500; color: #303133; }
+        .response-status { padding: 2px 8px; border-radius: 4px; font-size: 12px; }
+        .response-status.success { background: #e1f3d8; color: #67c23a; }
+        .response-status.danger { background: #fef0f0; color: #f56c6c; }
+        .response-status.info { background: #f4f4f5; color: #909399; }
+        .response-time { color: #909399; font-size: 12px; }
+        .response-tabs { display: flex; background: #fafafa; border-bottom: 1px solid #e4e7ed; }
+        .resp-tab-btn { padding: 8px 16px; cursor: pointer; font-size: 12px; color: #606266; border-bottom: 2px solid transparent; }
+        .resp-tab-btn:hover { color: #409eff; }
+        .resp-tab-btn.active { color: #409eff; border-bottom-color: #409eff; }
+        .response-content { flex: 1; overflow: auto; background: #1e1e1e; }
+        .response-body { color: #d4d4d4; padding: 16px; margin: 0; font-family: 'Monaco', 'Menlo', monospace; font-size: 12px; white-space: pre-wrap; word-break: break-all; min-height: 100%; }
+        .response-headers { padding: 12px; }
+        .resp-header-item { display: flex; gap: 8px; padding: 4px 0; border-bottom: 1px solid #333; font-size: 12px; }
+        .resp-hdr-key { color: #79c0ff; min-width: 150px; }
+        .resp-hdr-val { color: #d4d4d4; word-break: break-all; }
+        .dialog-footer { width: 100%; display: flex; justify-content: flex-end; gap: 8px; }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <el-container>
+            <el-header class="header">
+                <h1>API 智能监控系统</h1>
+                <div class="ws-status">
+                    <span class="status-dot" :class="websocketStatusClass"></span>
+                    <span>{{ websocketStatusText }}</span>
+                </div>
+            </el-header>
+            <el-main class="main-content">
+                <el-tabs v-model="activeTab" @tab-change="handleTabChange">
+                    <el-tab-pane label="监控面板" name="dashboard">
+                        <div v-loading="loading.monitors">
+                            <el-row :gutter="16">
+                                <el-col :xs="24" :sm="12" :md="8" :lg="6" v-for="monitor in monitors" :key="monitor.id">
+                                    <el-card class="monitor-card" @click="openMonitorDetail(monitor)">
+                                        <template #header>
+                                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                                <span>{{ monitor.name }}</span>
+                                                <span class="status-indicator" :class="getMonitorStatus(monitor)"></span>
+                                            </div>
+                                        </template>
+                                        <div style="color: #666; font-size: 14px; margin-bottom: 8px;">
+                                            <div>{{ monitor.url }}</div>
+                                        </div>
+                                        <div style="font-size: 13px; color: #999;">
+                                            <div>响应时间: {{ monitor.last_response_time || '-' }} ms</div>
+                                            <div>最后检查: {{ formatRelativeTime(monitor.last_check) }}</div>
+                                            <div>状态: {{ monitor.last_status || '-' }}</div>
+                                        </div>
+                                    </el-card>
+                                </el-col>
+                                <el-col :xs="24" :sm="12" :md="8" :lg="6" v-if="monitors.length === 0 && !loading.monitors">
+                                    <el-empty description="暂无监控项，请到配置页面添加"></el-empty>
+                                </el-col>
+                            </el-row>
+                        </div>
+                    </el-tab-pane>
+                    <el-tab-pane label="告警中心" name="alerts">
+                        <div v-loading="loading.alerts">
+                            <el-row style="margin-bottom: 16px;">
+                                <el-radio-group v-model="alertFilter" @change="fetchAlerts">
+                                    <el-radio-button label="all">全部</el-radio-button>
+                                    <el-radio-button label="unresolved">未解决</el-radio-button>
+                                    <el-radio-button label="resolved">已解决</el-radio-button>
+                                </el-radio-group>
+                            </el-row>
+                            <el-table :data="filteredAlerts" stripe style="width: 100%">
+                                <el-table-column prop="created_at" label="时间" width="180">
+                                    <template #default="{ row }">
+                                        {{ formatDate(row.created_at) }}
+                                    </template>
+                                </el-table-column>
+                                <el-table-column prop="monitor_name" label="监控项" width="150"></el-table-column>
+                                <el-table-column prop="alert_type" label="类型" width="120">
+                                    <template #default="{ row }">
+                                        <el-tag :type="getAlertTypeTag(row.alert_type)" size="small">
+                                            {{ getAlertTypeText(row.alert_type) }}
+                                        </el-tag>
+                                    </template>
+                                </el-table-column>
+                                <el-table-column prop="description" label="描述"></el-table-column>
+                                <el-table-column label="状态" width="100">
+                                    <template #default="{ row }">
+                                        <el-tag :type="row.is_resolved ? 'success' : 'danger'" size="small">
+                                            {{ row.is_resolved ? '已解决' : '未解决' }}
+                                        </el-tag>
+                                    </template>
+                                </el-table-column>
+                                <el-table-column label="操作" width="120" v-if="alertFilter !== 'resolved'">
+                                    <template #default="{ row }">
+                                        <el-button size="small" type="primary" @click="resolveAlert(row)" 
+                                            :disabled="row.is_resolved">标记已解决</el-button>
+                                    </template>
+                                </el-table-column>
+                            </el-table>
+                        </div>
+                    </el-tab-pane>
+                    <el-tab-pane label="监控配置" name="config">
+                        <div v-loading="loading.config">
+                            <el-row style="margin-bottom: 16px;">
+                                <el-button type="primary" @click="openAddDialog">添加监控</el-button>
+                            </el-row>
+                            <el-table :data="monitors" stripe style="width: 100%">
+                                <el-table-column prop="name" label="名称" width="150"></el-table-column>
+                                <el-table-column prop="url" label="URL" min-width="200"></el-table-column>
+                                <el-table-column prop="method" label="方法" width="80"></el-table-column>
+                                <el-table-column prop="interval_seconds" label="间隔(秒)" width="100"></el-table-column>
+                                <el-table-column label="状态" width="100">
+                                    <template #default="{ row }">
+                                        <el-tag :type="row.is_active ? 'success' : 'info'" size="small">
+                                            {{ row.is_active ? '启用' : '停用' }}
+                                        </el-tag>
+                                    </template>
+                                </el-table-column>
+                                <el-table-column label="操作" width="200">
+                                    <template #default="{ row }">
+                                        <el-button size="small" @click="openEditDialog(row)">编辑</el-button>
+                                        <el-switch v-model="row.is_active" @change="toggleMonitorActive(row)" 
+                                            style="margin: 0 8px;"></el-switch>
+                                        <el-popconfirm title="确定删除?" @confirm="deleteMonitor(row)">
+                                            <template #reference>
+                                                <el-button size="small" type="danger">删除</el-button>
+                                            </template>
+                                        </el-popconfirm>
+                                    </template>
+                                </el-table-column>
+                            </el-table>
+                        </div>
+                    </el-tab-pane>
+                    <el-tab-pane label="告警配置" name="notification">
+                        <div v-loading="loading.settings">
+                            <el-form label-width="140px" style="max-width: 600px;">
+                                <el-form-item label="启用邮件告警">
+                                    <el-switch v-model="emailSettings.enabled"></el-switch>
+                                </el-form-item>
+                                <el-divider></el-divider>
+                                <el-form-item label="SMTP 服务器">
+                                    <el-input v-model="emailSettings.smtp_host" placeholder="smtp.gmail.com"></el-input>
+                                </el-form-item>
+                                <el-form-item label="SMTP 端口">
+                                    <el-input-number v-model="emailSettings.smtp_port" :min="1" :max="65535"></el-input-number>
+                                </el-form-item>
+                                <el-form-item label="用户名">
+                                    <el-input v-model="emailSettings.smtp_user" placeholder="your-email@gmail.com"></el-input>
+                                </el-form-item>
+                                <el-form-item label="密码">
+                                    <el-input v-model="emailSettings.smtp_password" type="password" placeholder="应用专用密码"></el-input>
+                                </el-form-item>
+                                <el-form-item label="发件人">
+                                    <el-input v-model="emailSettings.from_email" placeholder="your-email@gmail.com"></el-input>
+                                </el-form-item>
+                                <el-form-item label="收件人">
+                                    <el-input v-model="emailSettings.to_emails" placeholder="admin@example.com, other@example.com"></el-input>
+                                </el-form-item>
+                                <el-form-item label="使用 TLS">
+                                    <el-switch v-model="emailSettings.use_tls"></el-switch>
+                                </el-form-item>
+                                <el-form-item>
+                                    <el-button type="primary" @click="saveEmailSettings" :loading="savingSettings">保存配置</el-button>
+                                    <el-button @click="testEmailSettings" :loading="testingEmail">发送测试邮件</el-button>
+                                </el-form-item>
+                            </el-form>
+                            <el-alert v-if="emailTestResult" :type="emailTestResult.type" :title="emailTestResult.message" style="margin-top: 16px; max-width: 600px;" show-icon></el-alert>
+                        </div>
+                    </el-tab-pane>
+                </el-tabs>
+            </el-main>
+        </el-container>
+
+        <el-dialog v-model="detailDialogVisible" :title="selectedMonitor?.name + ' 最近1小时响应时间'" width="800px">
+            <div class="dialog-chart">
+                <canvas ref="chartCanvas"></canvas>
+            </div>
+            <div v-if="selectedMonitorAlerts.length > 0" style="margin-top: 20px;">
+                <h4>最近5条告警</h4>
+                <el-table :data="selectedMonitorAlerts" size="small">
+                    <el-table-column prop="created_at" label="时间" width="160">
+                        <template #default="{ row }">
+                            {{ formatDate(row.created_at) }}
+                        </template>
+                    </el-table-column>
+                    <el-table-column prop="alert_type" label="类型" width="100">
+                        <template #default="{ row }">
+                            {{ getAlertTypeText(row.alert_type) }}
+                        </template>
+                    </el-table-column>
+                    <el-table-column prop="description" label="描述"></el-table-column>
+                </el-table>
+            </div>
+        </el-dialog>
+
+        <el-dialog 
+            v-model="formDialogVisible" 
+            :title="isEditMode ? '编辑监控' : '添加监控'" 
+            width="1100px" 
+            :close-on-click-modal="false"
+            class="bruno-dialog"
+            dragable
+        >
+            <div class="bruno-layout">
+                <div class="bruno-left">
+                    <div class="bruno-url-bar">
+                        <el-select v-model="monitorForm.method" style="width: 110px;">
+                            <el-option label="GET" value="GET"></el-option>
+                            <el-option label="POST" value="POST"></el-option>
+                            <el-option label="PUT" value="PUT"></el-option>
+                            <el-option label="DELETE" value="DELETE"></el-option>
+                            <el-option label="PATCH" value="PATCH"></el-option>
+                            <el-option label="HEAD" value="HEAD"></el-option>
+                            <el-option label="OPTIONS" value="OPTIONS"></el-option>
+                        </el-select>
+                        <el-input v-model="monitorForm.url" placeholder="输入 API 地址，如 https://api.example.com/health" style="flex: 1;"></el-input>
+                    </div>
+
+                    <div class="bruno-tabs-nav">
+                        <div class="bruno-tab-btn" :class="{active: activeFormTab === 'params'}" @click="activeFormTab = 'params'">Params</div>
+                        <div class="bruno-tab-btn" :class="{active: activeFormTab === 'headers'}" @click="activeFormTab = 'headers'">Headers</div>
+                        <div class="bruno-tab-btn" :class="{active: activeFormTab === 'body'}" @click="activeFormTab = 'body'">Body</div>
+                        <div class="bruno-tab-btn" :class="{active: activeFormTab === 'auth'}" @click="activeFormTab = 'auth'">Auth</div>
+                        <div class="bruno-tab-btn" :class="{active: activeFormTab === 'settings'}" @click="activeFormTab = 'settings'">Settings</div>
+                    </div>
+
+                    <div class="bruno-tab-content">
+                        <div v-show="activeFormTab === 'params'" class="tab-pane">
+                            <div class="kv-editor">
+                                <div class="kv-row header-row">
+                                    <span>Key</span>
+                                    <span>Value</span>
+                                    <span></span>
+                                </div>
+                                <div v-for="(param, index) in monitorForm.queryParams" :key="index" class="kv-row">
+                                    <el-input v-model="param.key" placeholder="key" size="small"></el-input>
+                                    <el-input v-model="param.value" placeholder="value" size="small"></el-input>
+                                    <el-button type="danger" size="small" link @click="removeParam(index)">×</el-button>
+                                </div>
+                                <el-button type="primary" size="small" @click="addParam" plain>+ 添加参数</el-button>
+                            </div>
+                        </div>
+
+                        <div v-show="activeFormTab === 'headers'" class="tab-pane">
+                            <div class="kv-editor">
+                                <div class="kv-row header-row">
+                                    <span>Key</span>
+                                    <span>Value</span>
+                                    <span></span>
+                                </div>
+                                <div v-for="(header, index) in monitorForm.headersList" :key="index" class="kv-row">
+                                    <el-input v-model="header.key" placeholder="key" size="small"></el-input>
+                                    <el-input v-model="header.value" placeholder="value" size="small"></el-input>
+                                    <el-button type="danger" size="small" link @click="removeHeader(index)">×</el-button>
+                                </div>
+                                <el-button type="primary" size="small" @click="addHeader" plain>+ 添加请求头</el-button>
+                            </div>
+                        </div>
+
+                        <div v-show="activeFormTab === 'body'" class="tab-pane">
+                            <div class="body-type-selector">
+                                <el-radio-group v-model="monitorForm.bodyType" size="small">
+                                    <el-radio-button label="none">none</el-radio-button>
+                                    <el-radio-button label="json">JSON</el-radio-button>
+                                    <el-radio-button label="text">Text</el-radio-button>
+                                </el-radio-group>
+                            </div>
+                            <el-input v-if="monitorForm.bodyType !== 'none'" v-model="monitorForm.body" type="textarea" :rows="8" placeholder='{"key": "value"}' style="font-family: monospace;"></el-input>
+                            <div v-else class="body-empty">此请求没有 body</div>
+                        </div>
+
+                        <div v-show="activeFormTab === 'auth'" class="tab-pane">
+                            <div class="auth-type-selector">
+                                <el-radio-group v-model="monitorForm.authType" size="small">
+                                    <el-radio-button label="none">No Auth</el-radio-button>
+                                    <el-radio-button label="bearer">Bearer</el-radio-button>
+                                    <el-radio-button label="basic">Basic</el-radio-button>
+                                    <el-radio-button label="apikey">API Key</el-radio-button>
+                                </el-radio-group>
+                            </div>
+                            <div v-if="monitorForm.authType === 'bearer'" class="auth-content">
+                                <el-input v-model="monitorForm.bearerToken" placeholder="Bearer Token" size="large"></el-input>
+                            </div>
+                            <div v-else-if="monitorForm.authType === 'basic'" class="auth-content">
+                                <el-form label-width="80px">
+                                    <el-form-item label="Username"><el-input v-model="monitorForm.basicUsername" size="large"></el-input></el-form-item>
+                                    <el-form-item label="Password"><el-input v-model="monitorForm.basicPassword" type="password" size="large"></el-input></el-form-item>
+                                </el-form>
+                            </div>
+                            <div v-else-if="monitorForm.authType === 'apikey'" class="auth-content">
+                                <el-form label-width="80px">
+                                    <el-form-item label="Key"><el-input v-model="monitorForm.apikeyName" placeholder="Header name" size="large"></el-input></el-form-item>
+                                    <el-form-item label="Value"><el-input v-model="monitorForm.apikeyValue" placeholder="Token value" size="large"></el-input></el-form-item>
+                                    <el-form-item label="Add To">
+                                        <el-select v-model="monitorForm.apikeyLocation" style="width: 100%;">
+                                            <el-option label="Header" value="header"></el-option>
+                                            <el-option label="Query" value="query"></el-option>
+                                        </el-select>
+                                    </el-form-item>
+                                </el-form>
+                            </div>
+                            <div v-else class="auth-empty">此请求不需要认证</div>
+                        </div>
+
+                        <div v-show="activeFormTab === 'settings'" class="tab-pane">
+                            <el-form label-width="120px" class="settings-form">
+                                <el-form-item label="监控名称"><el-input v-model="monitorForm.name" placeholder="给监控起个名字"></el-input></el-form-item>
+                                <el-form-item label="预期状态码"><el-input-number v-model="monitorForm.expected_status" :min="100" :max="599" style="width: 100%;"></el-input-number></el-form-item>
+                                <el-form-item label="预期内容(正则)"><el-input v-model="monitorForm.expected_body_regex" placeholder="如 ^{\"code\":0}"></el-input></el-form-item>
+                                <el-form-item label="检查间隔(秒)"><el-input-number v-model="monitorForm.interval_seconds" :min="10" :max="3600" style="width: 100%;"></el-input-number></el-form-item>
+                                <el-form-item label="超时时间(秒)"><el-input-number v-model="monitorForm.timeout_seconds" :min="1" :max="60" style="width: 100%;"></el-input-number></el-form-item>
+                            </el-form>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bruno-right">
+                    <div class="response-panel">
+                        <div class="response-header">
+                            <span class="response-title">Response</span>
+                            <span v-if="responsePanel.status" class="response-status" :class="responsePanel.statusType">{{ responsePanel.status }}</span>
+                            <span v-if="responsePanel.time" class="response-time">{{ responsePanel.time }}ms</span>
+                        </div>
+                        <div class="response-tabs">
+                            <div class="resp-tab-btn" :class="{active: responsePanel.activeTab === 'request'}" @click="responsePanel.activeTab = 'request'">Request</div>
+                            <div class="resp-tab-btn" :class="{active: responsePanel.activeTab === 'body'}" @click="responsePanel.activeTab = 'body'">Body</div>
+                            <div class="resp-tab-btn" :class="{active: responsePanel.activeTab === 'headers'}" @click="responsePanel.activeTab = 'headers'">Headers</div>
+                        </div>
+                        <div class="response-content">
+                            <pre v-if="responsePanel.activeTab === 'request'" class="response-body">{{ responsePanel.request || '点击 Send 发送请求' }}</pre>
+                            <pre v-else-if="responsePanel.activeTab === 'body'" class="response-body">{{ responsePanel.body || '等待响应...' }}</pre>
+                            <div v-else class="response-headers">
+                                <div v-for="(value, key) in responsePanel.headers" :key="key" class="resp-header-item">
+                                    <span class="resp-hdr-key">{{ key }}:</span>
+                                    <span class="resp-hdr-val">{{ value }}</span>
+                                </div>
+                                <div v-if="!Object.keys(responsePanel.headers).length" class="resp-empty">无响应头</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <template #footer>
+                <div class="dialog-footer">
+                    <el-button @click="formDialogVisible = false">关闭</el-button>
+                    <el-button @click="sendTestRequest" :loading="formSending" :disabled="!monitorForm.url">Send</el-button>
+                    <el-button type="success" @click="submitFormAndClose" :loading="formSubmitting" :disabled="!monitorForm.url">Save</el-button>
+                </div>
+            </template>
+        </el-dialog>
+    </div>
+
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <script src="https://unpkg.com/element-plus@2.4.4/dist/index.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <script>
+        const { createApp, ref, reactive, computed, onMounted, nextTick, watch } = Vue;
+        const { ElMessage } = ElementPlus;
+
+        const app = createApp({
+            setup() {
+                const API_BASE = window.location.origin;
+                
+                const activeTab = ref('dashboard');
+                const monitors = ref([]);
+                const alerts = ref([]);
+                const selectedMonitor = ref(null);
+                const chartData = ref([]);
+                const selectedMonitorAlerts = ref([]);
+                
+                const websocketStatus = ref('disconnected');
+                const wsReconnectDelay = ref(1000);
+                const maxReconnectDelay = 30000;
+                let ws = null;
+                let wsReconnectTimer = null;
+
+                const loading = reactive({
+                    monitors: false,
+                    alerts: false,
+                    config: false,
+                    settings: false
+                });
+
+                const emailSettings = reactive({
+                    enabled: false,
+                    smtp_host: 'smtp.gmail.com',
+                    smtp_port: 587,
+                    smtp_user: '',
+                    smtp_password: '',
+                    from_email: '',
+                    to_emails: '',
+                    use_tls: true
+                });
+                const savingSettings = ref(false);
+                const testingEmail = ref(false);
+                const emailTestResult = ref(null);
+
+                const alertFilter = ref('unresolved');
+                const detailDialogVisible = ref(false);
+                const formDialogVisible = ref(false);
+                const isEditMode = ref(false);
+                const formSubmitting = ref(false);
+                const formSending = ref(false);
+                const selectedMonitorId = ref(null);
+                const activeFormTab = ref('params');
+                let chartInstance = null;
+
+                const responsePanel = reactive({
+                    show: false,
+                    status: '',
+                    statusType: 'info',
+                    time: 0,
+                    body: '',
+                    headers: {},
+                    request: '',
+                    activeTab: 'request'
+                });
+
+                const monitorForm = reactive({
+                    name: '',
+                    url: '',
+                    method: 'GET',
+                    queryParams: [],
+                    headersList: [],
+                    bodyType: 'none',
+                    body: '',
+                    authType: 'none',
+                    bearerToken: '',
+                    basicUsername: '',
+                    basicPassword: '',
+                    apikeyName: '',
+                    apikeyValue: '',
+                    apikeyLocation: 'header',
+                    headers: '',
+                    expected_status: 200,
+                    expected_body_regex: '',
+                    interval_seconds: 60,
+                    timeout_seconds: 30
+                });
+
+                function addParam() {
+                    monitorForm.queryParams.push({ key: '', value: '', enabled: true });
+                }
+
+                function removeParam(index) {
+                    monitorForm.queryParams.splice(index, 1);
+                }
+
+                function addHeader() {
+                    monitorForm.headersList.push({ key: '', value: '', enabled: true });
+                }
+
+                function removeHeader(index) {
+                    monitorForm.headersList.splice(index, 1);
+                }
+
+                const formRules = {
+                    name: [{ required: true, message: '请输入监控名称', trigger: 'blur' }],
+                    url: [{ required: true, message: '请输入API地址', trigger: 'blur' }],
+                    expected_status: [{ required: true, message: '请输入预期状态码', trigger: 'blur' }],
+                    interval_seconds: [{ required: true, message: '请输入检查间隔', trigger: 'blur' }]
+                };
+
+                const formRef = ref(null);
+                const chartCanvas = ref(null);
+
+                const websocketStatusClass = computed(() => websocketStatus.value);
+                const websocketStatusText = computed(() => {
+                    switch (websocketStatus.value) {
+                        case 'connected': return '已连接';
+                        case 'reconnecting': return '重连中...';
+                        default: return '连接断开';
+                    }
+                });
+
+                const filteredAlerts = computed(() => {
+                    if (alertFilter.value === 'all') return alerts.value;
+                    if (alertFilter.value === 'unresolved') return alerts.value.filter(a => !a.is_resolved);
+                    return alerts.value.filter(a => a.is_resolved);
+                });
+
+                function getMonitorStatus(monitor) {
+                    if (monitor.last_status === 'anomaly' || monitor.last_status === 'error') return 'anomaly';
+                    if (monitor.last_status === 'normal') return 'normal';
+                    return 'normal';
+                }
+
+                function toDate(dateStr) {
+                    if (!dateStr) return null;
+                    if (typeof dateStr === 'string' && !dateStr.endsWith('Z')) {
+                        dateStr = dateStr + 'Z';
+                    }
+                    return new Date(dateStr);
+                }
+
+                function formatRelativeTime(dateStr) {
+                    if (!dateStr) return '-';
+                    const date = toDate(dateStr);
+                    const now = new Date();
+                    const diff = Math.floor((now - date) / 1000);
+                    if (diff < 60) return `${diff}秒前`;
+                    if (diff < 3600) return `${Math.floor(diff / 60)}分钟前`;
+                    if (diff < 86400) return `${Math.floor(diff / 3600)}小时前`;
+                    return `${Math.floor(diff / 86400)}天前`;
+                }
+
+                function formatDate(dateStr) {
+                    if (!dateStr) return '-';
+                    const date = toDate(dateStr);
+                    return date.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
+                }
+
+                function getAlertTypeText(type) {
+                    const map = {
+                        'status': '状态异常',
+                        'latency': '延迟异常',
+                        'body_mismatch': '内容异常'
+                    };
+                    return map[type] || type;
+                }
+
+                function getAlertTypeTag(type) {
+                    const map = {
+                        'status': 'danger',
+                        'latency': 'warning',
+                        'body_mismatch': 'warning'
+                    };
+                    return map[type] || 'info';
+                }
+
+                async function fetchMonitors() {
+                    try {
+                        loading.monitors = true;
+                        const response = await axios.get(`${API_BASE}/api/monitors`);
+                        monitors.value = response.data.map(m => ({
+                            ...m,
+                            last_response_time: null,
+                            last_status: null,
+                            last_check: null
+                        }));
+                        await fetchAlertStatuses();
+                    } catch (error) {
+                        ElMessage.error('获取监控项失败: ' + error.message);
+                    } finally {
+                        loading.monitors = false;
+                    }
+                }
+
+                async function fetchAlertStatuses() {
+                    try {
+                        const promises = monitors.value.map(monitor => 
+                            axios.get(`${API_BASE}/api/monitors/${monitor.id}/checks?minutes=60`).then(response => {
+                                if (response.data.length > 0) {
+                                    const latest = response.data[0];
+                                    monitor.last_response_time = latest.response_time_ms ? Math.round(latest.response_time_ms) : null;
+                                    monitor.last_status = latest.is_anomaly ? 'anomaly' : 'normal';
+                                    monitor.last_check = latest.checked_at;
+                                }
+                            }).catch(() => {})
+                        );
+                        await Promise.all(promises);
+                    } catch (error) {
+                        console.error('获取状态失败:', error);
+                    }
+                }
+
+                async function fetchAlerts() {
+                    try {
+                        loading.alerts = true;
+                        let url = `${API_BASE}/api/alerts`;
+                        if (alertFilter.value === 'unresolved') url += '?is_resolved=false';
+                        if (alertFilter.value === 'resolved') url += '?is_resolved=true';
+                        const response = await axios.get(url);
+                        alerts.value = response.data;
+                    } catch (error) {
+                        ElMessage.error('获取告警失败: ' + error.message);
+                    } finally {
+                        loading.alerts = false;
+                    }
+                }
+
+                async function openMonitorDetail(monitor) {
+                    selectedMonitor.value = monitor;
+                    selectedMonitorId.value = monitor.id;
+                    detailDialogVisible.value = true;
+                    await loadChartData(monitor.id);
+                    await loadMonitorAlerts(monitor.id);
+                }
+
+                async function loadChartData(monitorId) {
+                    try {
+                        const response = await axios.get(`${API_BASE}/api/monitors/${monitorId}/checks?minutes=60`);
+                        chartData.value = response.data;
+                        await nextTick();
+                        renderChart();
+                    } catch (error) {
+                        console.error('获取图表数据失败:', error);
+                    }
+                }
+
+                async function loadMonitorAlerts(monitorId) {
+                    try {
+                        const response = await axios.get(`${API_BASE}/api/alerts`);
+                        selectedMonitorAlerts.value = response.data
+                            .filter(a => a.monitor_id === monitorId)
+                            .slice(0, 5);
+                    } catch (error) {
+                        console.error('获取告警失败:', error);
+                    }
+                }
+
+                function renderChart() {
+                    if (!chartCanvas.value || !chartData.value.length) return;
+                    if (chartInstance) {
+                        chartInstance.destroy();
+                    }
+                    const ctx = chartCanvas.value.getContext('2d');
+                    const labels = chartData.value.map(d => formatDate(d.checked_at)).reverse();
+                    const data = chartData.value.map(d => d.response_time_ms).reverse();
+                    const colors = chartData.value.map(d => d.is_anomaly ? '#F56C6C' : '#409EFF').reverse();
+
+                    chartInstance = new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: labels,
+                            datasets: [{
+                                label: '响应时间 (ms)',
+                                data: data,
+                                borderColor: '#409EFF',
+                                backgroundColor: 'rgba(64, 158, 255, 0.1)',
+                                tension: 0.3,
+                                pointRadius: data.map((_, i) => chartData.value[i].is_anomaly ? 6 : 3),
+                                pointBackgroundColor: colors,
+                                fill: true
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: { display: true, position: 'top' }
+                            },
+                            scales: {
+                                y: { beginAtZero: true, title: { display: true, text: 'ms' } }
+                            }
+                        }
+                    });
+                }
+
+                function openAddDialog() {
+                    isEditMode.value = false;
+                    activeFormTab.value = 'params';
+                    Object.assign(monitorForm, {
+                        name: '',
+                        url: '',
+                        method: 'GET',
+                        queryParams: [{ key: '', value: '', enabled: true }],
+                        headersList: [{ key: '', value: '', enabled: true }],
+                        bodyType: 'none',
+                        body: '',
+                        authType: 'none',
+                        bearerToken: '',
+                        basicUsername: '',
+                        basicPassword: '',
+                        apikeyName: '',
+                        apikeyValue: '',
+                        apikeyLocation: 'header',
+                        headers: '',
+                        expected_status: 200,
+                        expected_body_regex: '',
+                        interval_seconds: 60,
+                        timeout_seconds: 30
+                    });
+                    formDialogVisible.value = true;
+                }
+
+                function parseAuthAndBody(monitor) {
+                    let authType = 'none';
+                    let bearerToken = '';
+                    let basicUsername = '';
+                    let basicPassword = '';
+                    let apikeyName = '';
+                    let apikeyValue = '';
+                    let apikeyLocation = 'header';
+                    let body = '';
+                    let bodyType = 'none';
+                    let headersList = [{ key: '', value: '', enabled: true }];
+
+                    if (monitor.headers) {
+                        try {
+                            const hdrs = typeof monitor.headers === 'string' ? JSON.parse(monitor.headers) : monitor.headers;
+                            headersList = Object.entries(hdrs).map(([key, value]) => ({ key, value, enabled: true }));
+                            if (headersList.length === 0) headersList = [{ key: '', value: '', enabled: true }];
+
+                            const authHeader = hdrs['Authorization'] || hdrs['authorization'] || '';
+                            if (authHeader.startsWith('Bearer ')) {
+                                authType = 'bearer';
+                                bearerToken = authHeader.substring(7);
+                            } else if (authHeader.startsWith('Basic ')) {
+                                authType = 'basic';
+                                const decoded = atob(authHeader.substring(6));
+                                const [user, pass] = decoded.split(':');
+                                basicUsername = user || '';
+                                basicPassword = pass || '';
+                            }
+                            if (hdrs['X-API-Key'] || hdrs['x-api-key']) {
+                                authType = 'apikey';
+                                apikeyName = 'X-API-Key';
+                                apikeyValue = hdrs['X-API-Key'] || hdrs['x-api-key'];
+                            }
+                        } catch (e) {
+                            headersList = [{ key: '', value: '', enabled: true }];
+                        }
+                    }
+                    if (monitor.body) {
+                        bodyType = 'json';
+                        body = typeof monitor.body === 'string' ? monitor.body : JSON.stringify(monitor.body, null, 2);
+                    }
+                    return { authType, bearerToken, basicUsername, basicPassword, apikeyName, apikeyValue, apikeyLocation, body, bodyType, headersList };
+                }
+
+                function openEditDialog(monitor) {
+                    isEditMode.value = true;
+                    activeFormTab.value = 'params';
+                    selectedMonitorId.value = monitor.id;
+                    const parsed = parseAuthAndBody(monitor);
+                    Object.assign(monitorForm, {
+                        name: monitor.name,
+                        url: monitor.url,
+                        method: monitor.method || 'GET',
+                        queryParams: [{ key: '', value: '', enabled: true }],
+                        headersList: parsed.headersList,
+                        bodyType: parsed.bodyType,
+                        body: parsed.body,
+                        authType: parsed.authType,
+                        bearerToken: parsed.bearerToken,
+                        basicUsername: parsed.basicUsername,
+                        basicPassword: parsed.basicPassword,
+                        apikeyName: parsed.apikeyName,
+                        apikeyValue: parsed.apikeyValue,
+                        apikeyLocation: parsed.apikeyLocation,
+                        headers: monitor.headers || '',
+                        expected_status: monitor.expected_status || 200,
+                        expected_body_regex: monitor.expected_body_regex || '',
+                        interval_seconds: monitor.interval_seconds || 60,
+                        timeout_seconds: monitor.timeout_seconds || 30
+                    });
+                    formDialogVisible.value = true;
+                }
+
+                function buildRequestConfig() {
+                    let url = monitorForm.url;
+                    const queryEnabled = monitorForm.queryParams.filter(p => p.key && p.enabled);
+                    if (queryEnabled.length > 0) {
+                        const params = new URLSearchParams();
+                        queryEnabled.forEach(p => params.append(p.key, p.value));
+                        url += (url.includes('?') ? '&' : '?') + params.toString();
+                    }
+
+                    const headers = {};
+                    const headersEnabled = monitorForm.headersList.filter(h => h.key && h.enabled);
+                    headersEnabled.forEach(h => headers[h.key] = h.value);
+
+                    if (monitorForm.authType === 'bearer' && monitorForm.bearerToken) {
+                        headers['Authorization'] = `Bearer ${monitorForm.bearerToken}`;
+                    } else if (monitorForm.authType === 'basic' && monitorForm.basicUsername) {
+                        headers['Authorization'] = 'Basic ' + btoa(`${monitorForm.basicUsername}:${monitorForm.basicPassword}`);
+                    } else if (monitorForm.authType === 'apikey' && monitorForm.apikeyName) {
+                        if (monitorForm.apikeyLocation === 'header') {
+                            headers[monitorForm.apikeyName] = monitorForm.apikeyValue;
+                        } else {
+                            url += (url.includes('?') ? '&' : '?') + `${monitorForm.apikeyName}=${monitorForm.apikeyValue}`;
+                        }
+                    }
+
+                    return { url, headers };
+                }
+
+                async function sendTestRequest() {
+                    try {
+                        formSending.value = true;
+                        responsePanel.show = false;
+
+                        const { url, headers } = buildRequestConfig();
+
+                        const requestData = {
+                            url: url,
+                            method: monitorForm.method,
+                            headers: headers,
+                            body: monitorForm.bodyType !== 'none' && monitorForm.body ? monitorForm.body : null,
+                            timeout: monitorForm.timeout_seconds || 30
+                        };
+
+                        const curlCmd = `curl -X ${monitorForm.method} \\\n  '${url}' \\\n${Object.keys(headers).map(k => `  -H '${k}: ${headers[k]}'`).join(' \\\n')}${requestData.body ? ` \\\n  -d '${requestData.body}'` : ''}`;
+
+                        responsePanel.show = true;
+                        responsePanel.status = '发送中...';
+                        responsePanel.statusType = 'info';
+                        responsePanel.time = 0;
+                        responsePanel.request = curlCmd;
+                        responsePanel.body = '';
+                        responsePanel.headers = {};
+                        responsePanel.activeTab = 'request';
+
+                        const response = await axios.post(`${API_BASE}/api/test-request`, requestData, {
+                            timeout: 60000
+                        });
+
+                        responsePanel.status = response.data.status;
+                        responsePanel.statusType = response.data.status >= 200 && response.data.status < 300 ? 'success' : 'danger';
+                        responsePanel.time = response.data.time_ms;
+                        responsePanel.body = response.data.body;
+                        responsePanel.headers = response.data.headers;
+                        responsePanel.activeTab = 'request';
+
+                    } catch (error) {
+                        responsePanel.show = true;
+                        const errMsg = error.response?.data?.detail || error.message || 'Unknown error';
+                        const errInfo = error.response?.data ? `\n\nError Details:\n${JSON.stringify(error.response.data, null, 2)}` : '';
+                        responsePanel.status = 'Error';
+                        responsePanel.statusType = 'danger';
+                        responsePanel.time = 0;
+                        responsePanel.body = `请求失败: ${errMsg}${errInfo}`;
+                        responsePanel.headers = {};
+                        responsePanel.activeTab = 'request';
+                    } finally {
+                        formSending.value = false;
+                    }
+                }
+
+                async function submitForm() {
+                    try {
+                        formSubmitting.value = true;
+
+                        const { url, headers } = buildRequestConfig();
+
+                        const payload = {
+                            name: monitorForm.name || url,
+                            url: url,
+                            method: monitorForm.method,
+                            headers: Object.keys(headers).length > 0 ? JSON.stringify(headers) : null,
+                            expected_status: monitorForm.expected_status,
+                            expected_body_regex: monitorForm.expected_body_regex || null,
+                            interval_seconds: monitorForm.interval_seconds,
+                            timeout_seconds: monitorForm.timeout_seconds
+                        };
+
+                        if (monitorForm.bodyType !== 'none' && monitorForm.body) {
+                            payload.body = monitorForm.body;
+                        }
+
+                        if (isEditMode.value) {
+                            await axios.put(`${API_BASE}/api/monitors/${selectedMonitorId.value}`, payload);
+                            ElMessage.success('更新成功');
+                        } else {
+                            await axios.post(`${API_BASE}/api/monitors`, payload);
+                            ElMessage.success('添加成功');
+                        }
+                        await fetchMonitors();
+                    } catch (error) {
+                        if (error.message) ElMessage.error(error.message);
+                    } finally {
+                        formSubmitting.value = false;
+                    }
+                }
+
+                async function submitFormAndClose() {
+                    await submitForm();
+                    formDialogVisible.value = false;
+                }
+
+                async function deleteMonitor(monitor) {
+                    try {
+                        await axios.delete(`${API_BASE}/api/monitors/${monitor.id}`);
+                        ElMessage.success('删除成功');
+                        await fetchMonitors();
+                    } catch (error) {
+                        ElMessage.error('删除失败: ' + error.message);
+                    }
+                }
+
+                async function toggleMonitorActive(monitor) {
+                    try {
+                        await axios.put(`${API_BASE}/api/monitors/${monitor.id}`, {
+                            is_active: monitor.is_active
+                        });
+                        ElMessage.success(monitor.is_active ? '已启用' : '已停用');
+                    } catch (error) {
+                        ElMessage.error('更新状态失败: ' + error.message);
+                        monitor.is_active = !monitor.is_active;
+                    }
+                }
+
+                async function resolveAlert(alert) {
+                    try {
+                        await axios.put(`${API_BASE}/api/alerts/${alert.id}/resolve`);
+                        ElMessage.success('已标记为解决');
+                        await fetchAlerts();
+                    } catch (error) {
+                        ElMessage.error('操作失败: ' + error.message);
+                    }
+                }
+
+                function handleTabChange(tab) {
+                    if (tab === 'alerts') fetchAlerts();
+                    if (tab === 'notification') fetchEmailSettings();
+                }
+
+                async function fetchEmailSettings() {
+                    try {
+                        loading.settings = true;
+                        const response = await axios.get(`${API_BASE}/api/settings`);
+                        if (response.data.email_config) {
+                            Object.assign(emailSettings, response.data.email_config);
+                        }
+                        emailSettings.enabled = response.data.email_enabled;
+                    } catch (error) {
+                        console.error('获取邮件设置失败:', error);
+                    } finally {
+                        loading.settings = false;
+                    }
+                }
+
+                async function saveEmailSettings() {
+                    try {
+                        savingSettings.value = true;
+                        await axios.post(`${API_BASE}/api/settings/email`, {
+                            enabled: emailSettings.enabled,
+                            smtp_host: emailSettings.smtp_host,
+                            smtp_port: emailSettings.smtp_port,
+                            smtp_user: emailSettings.smtp_user,
+                            smtp_password: emailSettings.smtp_password,
+                            from_email: emailSettings.from_email,
+                            to_emails: emailSettings.to_emails,
+                            use_tls: emailSettings.use_tls
+                        });
+                        ElMessage.success('邮件设置已保存');
+                    } catch (error) {
+                        ElMessage.error('保存失败: ' + error.message);
+                    } finally {
+                        savingSettings.value = false;
+                    }
+                }
+
+                async function testEmailSettings() {
+                    try {
+                        testingEmail.value = true;
+                        emailTestResult.value = null;
+                        await axios.post(`${API_BASE}/api/settings/email/test`, {
+                            smtp_host: emailSettings.smtp_host,
+                            smtp_port: emailSettings.smtp_port,
+                            smtp_user: emailSettings.smtp_user,
+                            smtp_password: emailSettings.smtp_password,
+                            from_email: emailSettings.from_email,
+                            to_emails: emailSettings.to_emails,
+                            use_tls: emailSettings.use_tls
+                        });
+                        emailTestResult.value = { type: 'success', message: '测试邮件发送成功！' };
+                    } catch (error) {
+                        emailTestResult.value = { type: 'error', message: '发送失败: ' + (error.response?.data?.detail || error.message) };
+                    } finally {
+                        testingEmail.value = false;
+                    }
+                }
+
+                function connectWebSocket() {
+                    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                    const wsUrl = `${protocol}//${window.location.host}/ws/status`;
+                    
+                    try {
+                        ws = new WebSocket(wsUrl);
+                        
+                        ws.onopen = () => {
+                            websocketStatus.value = 'connected';
+                            wsReconnectDelay.value = 1000;
+                        };
+
+                        ws.onmessage = (event) => {
+                            try {
+                                const data = JSON.parse(event.data);
+                                if (data.type === 'status_update') {
+                                    const monitor = monitors.value.find(m => m.id === data.monitor_id);
+                                    if (monitor) {
+                                        monitor.last_response_time = data.response_time_ms ? Math.round(data.response_time_ms) : null;
+                                        monitor.last_status = data.status;
+                                        monitor.last_check = data.last_check;
+                                    }
+                                } else if (data.type === 'new_alert') {
+                                    const alert = data.alert;
+                                    const exists = alerts.value.some(a => a.id === alert.id);
+                                    if (!exists) {
+                                        alerts.value.unshift(alert);
+                                        ElMessage.warning(`新告警: ${alert.description}`);
+                                    }
+                                }
+                            } catch (e) {
+                                console.error('解析WebSocket消息失败:', e);
+                            }
+                        };
+
+                        ws.onclose = () => {
+                            websocketStatus.value = 'disconnected';
+                            scheduleReconnect();
+                        };
+
+                        ws.onerror = () => {
+                            websocketStatus.value = 'disconnected';
+                        };
+                    } catch (error) {
+                        console.error('WebSocket连接失败:', error);
+                        scheduleReconnect();
+                    }
+                }
+
+                function scheduleReconnect() {
+                    if (wsReconnectTimer) clearTimeout(wsReconnectTimer);
+                    websocketStatus.value = 'reconnecting';
+                    wsReconnectTimer = setTimeout(() => {
+                        connectWebSocket();
+                        wsReconnectDelay.value = Math.min(wsReconnectDelay.value * 2, maxReconnectDelay);
+                    }, wsReconnectDelay.value);
+                }
+
+                onMounted(() => {
+                    fetchMonitors();
+                    fetchAlerts();
+                    connectWebSocket();
+                });
+
+                return {
+                    activeTab,
+                    monitors,
+                    alerts,
+                    selectedMonitor,
+                    chartData,
+                    selectedMonitorAlerts,
+                    websocketStatus,
+                    websocketStatusClass,
+                    websocketStatusText,
+                    loading,
+                    alertFilter,
+                    filteredAlerts,
+                    detailDialogVisible,
+                    formDialogVisible,
+                    isEditMode,
+                    formSubmitting,
+                    formSending,
+                    activeFormTab,
+                    monitorForm,
+                    responsePanel,
+                    formRules,
+                    formRef,
+                    chartCanvas,
+                    getMonitorStatus,
+                    formatRelativeTime,
+                    formatDate,
+                    getAlertTypeText,
+                    getAlertTypeTag,
+                    openMonitorDetail,
+                    submitForm,
+                    submitFormAndClose,
+                    sendTestRequest,
+                    openAddDialog,
+                    openEditDialog,
+                    deleteMonitor,
+                    toggleMonitorActive,
+                    resolveAlert,
+                    handleTabChange,
+                    emailSettings,
+                    fetchEmailSettings,
+                    saveEmailSettings,
+                    testEmailSettings,
+                    addParam,
+                    removeParam,
+                    addHeader,
+                    removeHeader
+                };
+            }
+        });
+
+        app.use(ElementPlus);
+        app.mount('#app');
+    </script>
+</body>
+</html>

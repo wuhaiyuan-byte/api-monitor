@@ -1,0 +1,108 @@
+from pydantic import BaseModel, Field
+from typing import Optional, List
+from datetime import datetime
+from models import AlertType
+
+
+class MonitorBase(BaseModel):
+    name: str
+    url: str
+    method: str = "GET"
+    headers: Optional[str] = None
+    body: Optional[str] = None
+    expected_status: int = 200
+    expected_body_regex: Optional[str] = None
+    latency_threshold_ms: Optional[float] = None
+    interval_seconds: int = 60
+    timeout_seconds: int = 30
+    is_active: bool = True
+
+
+class MonitorCreate(MonitorBase):
+    pass
+
+
+class MonitorUpdate(BaseModel):
+    name: Optional[str] = None
+    url: Optional[str] = None
+    method: Optional[str] = None
+    headers: Optional[str] = None
+    body: Optional[str] = None
+    expected_status: Optional[int] = None
+    expected_body_regex: Optional[str] = None
+    latency_threshold_ms: Optional[float] = None
+    interval_seconds: Optional[int] = None
+    timeout_seconds: Optional[int] = None
+    is_active: Optional[bool] = None
+
+
+class MonitorResponse(MonitorBase):
+    id: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class CheckResultBase(BaseModel):
+    monitor_id: int
+    status_code: Optional[int] = None
+    response_time_ms: Optional[float] = None
+    body_snippet: Optional[str] = None
+    error_message: Optional[str] = None
+    is_anomaly: bool = False
+    checked_at: datetime
+
+
+class CheckResultResponse(CheckResultBase):
+    id: int
+
+    class Config:
+        from_attributes = True
+
+
+class AlertBase(BaseModel):
+    monitor_id: int
+    alert_type: AlertType
+    description: str
+    is_resolved: bool = False
+    created_at: datetime
+
+
+class AlertResponse(AlertBase):
+    id: int
+    monitor_name: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class StatusUpdate(BaseModel):
+    type: str = "status_update"
+    monitor_id: int
+    status: str
+    response_time_ms: Optional[float] = None
+    status_code: Optional[int] = None
+    is_anomaly: bool = False
+    last_check: datetime
+
+
+class NewAlert(BaseModel):
+    type: str = "new_alert"
+    alert: AlertResponse
+
+
+class EmailSettings(BaseModel):
+    enabled: bool = False
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    from_email: str = ""
+    to_emails: str = ""
+    use_tls: bool = True
+
+
+class SettingsResponse(BaseModel):
+    email_enabled: bool = False
+    email_config: EmailSettings = EmailSettings()
