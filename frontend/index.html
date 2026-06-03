@@ -494,6 +494,32 @@
         .el-form-item { margin-bottom: 16px; }
         .el-form-item__label { color: var(--text-secondary); font-size: 13px; font-weight: 500; }
         .el-textarea__inner { background: var(--bg-primary) !important; border: 1px solid var(--border) !important; color: var(--text-primary) !important; font-family: 'SF Mono', monospace; }
+
+        /* Recipient Groups */
+        .recipient-group { background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 14px; margin-bottom: 12px; }
+        .recipient-group-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+        .recipient-group-name { font-size: 14px; font-weight: 600; color: var(--text-primary); display: inline-flex; align-items: center; gap: 8px; }
+        .recipient-group-name-input { font-size: 14px; font-weight: 600; color: var(--text-primary); background: var(--bg-primary); border: 1px solid var(--accent); border-radius: 4px; padding: 2px 8px; outline: none; min-width: 120px; }
+        .default-tag { background: var(--accent); color: white; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: 500; }
+        .recipient-emails { display: flex; flex-wrap: wrap; gap: 6px; min-height: 32px; align-items: center; }
+        .email-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 14px; padding: 4px 4px 4px 10px; font-size: 12px; }
+        .email-chip-icon { font-size: 12px; opacity: 0.7; }
+        .email-chip-text { color: var(--text-primary); }
+        .email-chip-remove { background: transparent; border: none; color: var(--text-muted); font-size: 16px; line-height: 1; cursor: pointer; padding: 0 6px; border-radius: 50%; width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; }
+        .email-chip-remove:hover:not(:disabled) { background: var(--danger); color: white; }
+        .email-chip-remove:disabled { opacity: 0.4; cursor: not-allowed; }
+        .email-empty { color: var(--text-muted); font-size: 12px; font-style: italic; padding: 4px 0; }
+        .email-add-row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+        .email-input-error .el-input__wrapper { border-color: var(--danger) !important; }
+        .email-error-text { color: var(--danger); font-size: 11px; margin-top: 4px; }
+        .btn-icon-danger { background: transparent; border: none; cursor: pointer; font-size: 14px; padding: 4px 8px; border-radius: 4px; transition: background 0.15s; }
+        .btn-icon-danger:hover { background: rgba(220, 38, 38, 0.1); }
+
+        /* Test result row */
+        .test-last-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 8px 12px; background: var(--bg-elevated); border-radius: var(--radius-sm); border: 1px solid var(--border-subtle); }
+        .test-error-text { color: var(--danger); font-size: 11px; font-family: 'SF Mono', monospace; width: 100%; margin-top: 4px; }
+        .tag.success { background: rgba(34, 160, 90, 0.12); color: var(--success); }
+        .tag.danger { background: rgba(220, 38, 38, 0.12); color: var(--danger); }
     </style>
 </head>
 <body>
@@ -623,37 +649,163 @@
                 <div class="page-header">
                     <h1 class="page-title">Settings</h1>
                 </div>
-                <div class="card">
+
+                <!-- Master switch -->
+                <div class="card" style="margin-bottom: 20px;">
+                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                        <span class="card-title">✉️ 邮件告警</span>
+                        <el-switch v-model="emailSettings.enabled" @change="saveEmailSettings" style="--el-switch-on-color: var(--accent);"></el-switch>
+                    </div>
+                    <div style="font-size: 12px; color: var(--text-muted); padding-top: 4px;">
+                        {{ emailSettings.enabled ? '✅ 邮件告警已启用' : '⏸️ 邮件告警已停用（下方配置仍可保存）' }}
+                    </div>
+                </div>
+
+                <!-- SMTP Server -->
+                <div class="card" style="margin-bottom: 20px;">
                     <div class="card-header">
-                        <span class="card-title">Email Notifications</span>
+                        <span class="card-title">📡 SMTP 服务器</span>
                     </div>
                     <el-form label-position="top" class="settings-form">
-                        <el-form-item label="Enable Email Alerts">
-                            <el-switch v-model="emailSettings.enabled" @change="saveEmailSettings"></el-switch>
-                        </el-form-item>
                         <el-form-item label="SMTP Host">
                             <el-input v-model="emailSettings.smtp_host" :disabled="!emailSettings.enabled" @blur="saveEmailSettings"></el-input>
                         </el-form-item>
                         <el-form-item label="SMTP Port">
                             <el-input-number v-model="emailSettings.smtp_port" :disabled="!emailSettings.enabled" :min="1" :max="65535" style="width: 100%;" @change="saveEmailSettings"></el-input-number>
                         </el-form-item>
+                        <el-form-item label="Use TLS">
+                            <el-switch v-model="emailSettings.use_tls" :disabled="!emailSettings.enabled" @change="saveEmailSettings"></el-switch>
+                        </el-form-item>
                         <el-form-item label="SMTP Username">
                             <el-input v-model="emailSettings.smtp_user" :disabled="!emailSettings.enabled" @blur="saveEmailSettings"></el-input>
                         </el-form-item>
                         <el-form-item label="SMTP Password">
-                            <el-input v-model="emailSettings.smtp_password" type="password" :disabled="!emailSettings.enabled" @blur="saveEmailSettings"></el-input>
+                            <el-input v-model="emailSettings.smtp_password" type="password" show-password :disabled="!emailSettings.enabled" @blur="saveEmailSettings"></el-input>
                         </el-form-item>
-                        <el-form-item label="From Email">
+                        <el-form-item label="From Email（发件人）">
                             <el-input v-model="emailSettings.from_email" :disabled="!emailSettings.enabled" @blur="saveEmailSettings"></el-input>
                         </el-form-item>
-                        <el-form-item label="To Emails (comma separated)">
-                            <el-input v-model="emailSettings.to_emails" :disabled="!emailSettings.enabled" @blur="saveEmailSettings"></el-input>
+                    </el-form>
+                </div>
+
+                <!-- Recipient Groups -->
+                <div class="card" style="margin-bottom: 20px;">
+                    <div class="card-header">
+                        <span class="card-title">👥 收件人分组</span>
+                    </div>
+                    <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 16px;">
+                        告警邮件会发送给所有分组中的所有邮箱。「默认」分组不可删除。
+                    </div>
+
+                    <div v-for="(group, gIndex) in emailSettings.recipient_groups" :key="gIndex" class="recipient-group">
+                        <div class="recipient-group-header">
+                            <span class="recipient-group-name" v-if="!editingGroupIndex === gIndex || !editingGroupName" @click="startEditGroupName(gIndex)" style="cursor: pointer;">
+                                {{ group.name }}
+                                <span v-if="group.is_default" class="tag default-tag">默认</span>
+                            </span>
+                            <input v-else
+                                   v-model="groupNameDraft"
+                                   @blur="finishEditGroupName(gIndex)"
+                                   @keyup.enter="finishEditGroupName(gIndex)"
+                                   @keyup.esc="cancelEditGroupName"
+                                   class="recipient-group-name-input"
+                                   ref="groupNameInput" />
+                            <span style="flex: 1;"></span>
+                            <span style="font-size: 11px; color: var(--text-muted);">
+                                {{ group.emails.length }} 个邮箱
+                            </span>
+                            <button v-if="!group.is_default" type="button" class="btn-icon-danger" @click="removeRecipientGroup(gIndex)" title="删除分组">🗑️</button>
+                        </div>
+
+                        <div class="recipient-emails">
+                            <div v-for="(email, eIndex) in group.emails" :key="eIndex" class="email-chip">
+                                <span class="email-chip-icon">📧</span>
+                                <span class="email-chip-text">{{ email }}</span>
+                                <button type="button" class="email-chip-remove" @click="removeEmailFromGroup(gIndex, eIndex)" :disabled="!emailSettings.enabled" title="移除">×</button>
+                            </div>
+                            <div v-if="group.emails.length === 0" class="email-empty">暂无邮箱</div>
+                        </div>
+
+                        <div v-if="addingEmailToGroup === gIndex" class="email-add-row">
+                            <el-input v-model="newEmailDraft"
+                                      placeholder="example@domain.com"
+                                      size="small"
+                                      @keyup.enter="confirmAddEmail(gIndex)"
+                                      @keyup.esc="cancelAddEmail"
+                                      ref="newEmailInput"
+                                      :class="{'email-input-error': newEmailError}"></el-input>
+                            <button type="button" class="btn btn-ghost btn-small" @click="confirmAddEmail(gIndex)">添加</button>
+                            <button type="button" class="btn btn-ghost btn-small" @click="cancelAddEmail">取消</button>
+                        </div>
+                        <div v-if="newEmailError && addingEmailToGroup === gIndex" class="email-error-text">{{ newEmailError }}</div>
+
+                        <button v-if="addingEmailToGroup !== gIndex" type="button" class="btn btn-ghost btn-small" @click="startAddEmail(gIndex)" :disabled="!emailSettings.enabled" style="margin-top: 8px;">
+                            + 添加邮箱
+                        </button>
+                    </div>
+
+                    <button type="button" class="btn btn-ghost" @click="addRecipientGroup" :disabled="!emailSettings.enabled" style="margin-top: 12px;">
+                        + 新增分组
+                    </button>
+                </div>
+
+                <!-- Alert Trigger Conditions -->
+                <div class="card" style="margin-bottom: 20px;">
+                    <div class="card-header">
+                        <span class="card-title">⚙️ 告警触发条件</span>
+                    </div>
+                    <el-form label-position="top" class="settings-form">
+                        <el-form-item label="状态码异常时发送">
+                            <el-switch v-model="emailSettings.alert_on_status" :disabled="!emailSettings.enabled" @change="saveEmailSettings"></el-switch>
                         </el-form-item>
-                        <el-form-item label="Use TLS">
-                            <el-switch v-model="emailSettings.use_tls" :disabled="!emailSettings.enabled" @change="saveEmailSettings"></el-switch>
+                        <el-form-item label="延迟超阈值时发送">
+                            <el-switch v-model="emailSettings.alert_on_latency" :disabled="!emailSettings.enabled" @change="saveEmailSettings"></el-switch>
+                        </el-form-item>
+                        <el-form-item label="响应内容不匹配时发送">
+                            <el-switch v-model="emailSettings.alert_on_body" :disabled="!emailSettings.enabled" @change="saveEmailSettings"></el-switch>
+                        </el-form-item>
+                        <el-form-item label="请求超时时发送">
+                            <el-switch v-model="emailSettings.alert_on_timeout" :disabled="!emailSettings.enabled" @change="saveEmailSettings"></el-switch>
+                        </el-form-item>
+                        <el-form-item label="异常恢复时发送通知">
+                            <el-switch v-model="emailSettings.alert_on_recovery" :disabled="!emailSettings.enabled" @change="saveEmailSettings"></el-switch>
+                        </el-form-item>
+                        <el-form-item label="告警冷却时间（分钟，0=不抑制）">
+                            <el-input-number v-model="emailSettings.repeat_suppress_minutes" :disabled="!emailSettings.enabled" :min="0" :max="1440" style="width: 100%;" @change="saveEmailSettings"></el-input-number>
+                        </el-form-item>
+                    </el-form>
+                </div>
+
+                <!-- Connectivity Test -->
+                <div class="card" style="margin-bottom: 20px;">
+                    <div class="card-header">
+                        <span class="card-title">🧪 连通性测试</span>
+                    </div>
+                    <el-form label-position="top" class="settings-form">
+                        <el-form-item label="测试邮件主题">
+                            <el-input v-model="emailSettings.test_subject" :disabled="!emailSettings.enabled" @blur="saveEmailSettings"></el-input>
+                        </el-form-item>
+                        <el-form-item label="测试邮件正文（支持 {timestamp} 占位符）">
+                            <el-input v-model="emailSettings.test_body" type="textarea" :rows="5" :disabled="!emailSettings.enabled" @blur="saveEmailSettings"></el-input>
+                        </el-form-item>
+                        <el-form-item v-if="emailSettings.test_last_at">
+                            <div class="test-last-row">
+                                <span style="color: var(--text-muted); font-size: 12px;">上次测试:</span>
+                                <span style="font-size: 12px;">{{ formatDate(emailSettings.test_last_at) }}</span>
+                                <span v-if="emailSettings.test_last_status === 'success'" class="tag success">✅ 成功</span>
+                                <span v-else-if="emailSettings.test_last_status === 'failed'" class="tag danger">❌ 失败</span>
+                                <span v-if="emailSettings.test_last_status === 'failed' && emailSettings.test_last_error" class="test-error-text">
+                                    {{ emailSettings.test_last_error }}
+                                </span>
+                            </div>
                         </el-form-item>
                         <el-form-item>
-                            <button type="button" class="btn btn-ghost" :disabled="!emailSettings.enabled" @click="testEmailSettings">Send Test Email</button>
+                            <div style="display: flex; gap: 12px;">
+                                <button type="button" class="btn btn-ghost" :disabled="!emailSettings.enabled || testing" @click="testEmailSettings">
+                                    {{ testing ? '发送中...' : '📨 发送测试邮件' }}
+                                </button>
+                                <button type="button" class="btn btn-ghost" @click="saveEmailSettings">💾 保存设置</button>
+                            </div>
                         </el-form-item>
                     </el-form>
                 </div>
@@ -895,8 +1047,27 @@
                     smtp_password: '',
                     from_email: '',
                     to_emails: '',
-                    use_tls: true
+                    use_tls: true,
+                    alert_on_status: true,
+                    alert_on_latency: true,
+                    alert_on_body: false,
+                    alert_on_timeout: true,
+                    alert_on_recovery: false,
+                    repeat_suppress_minutes: 10,
+                    test_subject: 'API Monitor 邮件通知测试',
+                    test_body: '这是一封来自 API Monitor 的测试邮件。\n如果收到此邮件，说明邮件配置正确。\n\n时间: {timestamp}',
+                    test_last_at: '',
+                    test_last_status: '',
+                    test_last_error: '',
+                    recipient_groups: [{ name: '默认', emails: [], is_default: true }]
                 });
+
+                const testing = ref(false);
+                const addingEmailToGroup = ref(-1);
+                const newEmailDraft = ref('');
+                const newEmailError = ref('');
+                const editingGroupIndex = ref(-1);
+                const groupNameDraft = ref('');
 
                 const filteredAlerts = computed(() => {
                     if (alertFilter.value === 'all') return alerts.value;
@@ -998,7 +1169,18 @@ function toBeijingDate(dateStr) {
                     try {
                         const response = await axios.get(`${API_BASE}/api/settings`);
                         if (response.data.email_config) {
-                            Object.assign(emailSettings, response.data.email_config);
+                            const cfg = response.data.email_config;
+                            // Force recipient_groups to be a writable reactive array (server may return plain array)
+                            if (Array.isArray(cfg.recipient_groups)) {
+                                cfg.recipient_groups = cfg.recipient_groups.map(g => ({
+                                    name: g.name || '分组',
+                                    emails: Array.isArray(g.emails) ? [...g.emails] : [],
+                                    is_default: !!g.is_default
+                                }));
+                            } else {
+                                cfg.recipient_groups = [{ name: '默认', emails: [], is_default: true }];
+                            }
+                            Object.assign(emailSettings, cfg);
                         }
                     } catch (error) {
                         console.error('Failed to fetch email settings:', error);
@@ -1007,22 +1189,111 @@ function toBeijingDate(dateStr) {
 
                 async function saveEmailSettings() {
                     try {
-                        await axios.post(`${API_BASE}/api/settings`, {
-                            email_enabled: emailSettings.enabled,
-                            email_config: { ...emailSettings }
-                        });
+                        await axios.post(`${API_BASE}/api/settings/email`, { ...emailSettings });
                     } catch (error) {
                         console.error('Failed to save email settings:', error);
                     }
                 }
 
                 async function testEmailSettings() {
+                    if (testing.value) return;
+                    testing.value = true;
                     try {
-                        await axios.post(`${API_BASE}/api/settings/test-email`, { ...emailSettings });
-                        ElMessage.success('Test email sent');
+                        const res = await axios.post(`${API_BASE}/api/settings/email/test`, { ...emailSettings });
+                        ElMessage.success(res.data.message || '测试邮件已发送');
+                        // Refresh to get latest test result
+                        await fetchEmailSettings();
                     } catch (error) {
-                        ElMessage.error('Failed to send test email: ' + (error.response?.data?.detail || error.message));
+                        const detail = error.response?.data?.detail || error.message;
+                        ElMessage.error('发送失败: ' + detail);
+                        // Still refresh to capture failed test
+                        await fetchEmailSettings();
+                    } finally {
+                        testing.value = false;
                     }
+                }
+
+                function validateEmail(email) {
+                    const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                    return re.test(email);
+                }
+
+                function startAddEmail(gIndex) {
+                    addingEmailToGroup.value = gIndex;
+                    newEmailDraft.value = '';
+                    newEmailError.value = '';
+                    // Focus the input on next tick
+                    setTimeout(() => {
+                        const inputs = document.querySelectorAll('.email-add-row .el-input__inner');
+                        if (inputs.length) inputs[inputs.length - 1].focus();
+                    }, 50);
+                }
+
+                function cancelAddEmail() {
+                    addingEmailToGroup.value = -1;
+                    newEmailDraft.value = '';
+                    newEmailError.value = '';
+                }
+
+                function confirmAddEmail(gIndex) {
+                    const email = newEmailDraft.value.trim();
+                    if (!email) {
+                        newEmailError.value = '请输入邮箱';
+                        return;
+                    }
+                    if (!validateEmail(email)) {
+                        newEmailError.value = '邮箱格式不正确';
+                        return;
+                    }
+                    const group = emailSettings.recipient_groups[gIndex];
+                    if (group.emails.includes(email)) {
+                        newEmailError.value = '该邮箱已在分组中';
+                        return;
+                    }
+                    group.emails.push(email);
+                    cancelAddEmail();
+                    saveEmailSettings();
+                }
+
+                function removeEmailFromGroup(gIndex, eIndex) {
+                    emailSettings.recipient_groups[gIndex].emails.splice(eIndex, 1);
+                    saveEmailSettings();
+                }
+
+                function addRecipientGroup() {
+                    const used = emailSettings.recipient_groups.map(g => g.name);
+                    let i = 1;
+                    let name = `分组 ${i}`;
+                    while (used.includes(name)) i++;
+                    name = `分组 ${i}`;
+                    emailSettings.recipient_groups.push({ name, emails: [], is_default: false });
+                    saveEmailSettings();
+                }
+
+                function removeRecipientGroup(gIndex) {
+                    const group = emailSettings.recipient_groups[gIndex];
+                    if (group.is_default) return;
+                    emailSettings.recipient_groups.splice(gIndex, 1);
+                    saveEmailSettings();
+                }
+
+                function startEditGroupName(gIndex) {
+                    const group = emailSettings.recipient_groups[gIndex];
+                    if (group.is_default) return;
+                    editingGroupIndex.value = gIndex;
+                    groupNameDraft.value = group.name;
+                }
+
+                function finishEditGroupName(gIndex) {
+                    const newName = groupNameDraft.value.trim() || '分组';
+                    emailSettings.recipient_groups[gIndex].name = newName;
+                    editingGroupIndex.value = -1;
+                    saveEmailSettings();
+                }
+
+                function cancelEditGroupName() {
+                    editingGroupIndex.value = -1;
+                    groupNameDraft.value = '';
                 }
 
                 function switchToAlerts() {
@@ -1354,8 +1625,13 @@ function toBeijingDate(dateStr) {
                     websocketStatus, alertFilter, filteredAlerts,
                     detailDialogVisible, chartTimeRange, currentChartMonitorId, formDialogVisible, isEditMode, formSubmitting, formSending,
                     activeFormTab, monitorForm, responsePanel, emailSettings,
+                    testing, addingEmailToGroup, newEmailDraft, newEmailError,
+                    editingGroupIndex, groupNameDraft,
                     getMonitorStatus, getResponseTimeClass, formatRelativeTime, formatDate,
                     switchToAlerts, switchToSettings, fetchEmailSettings, saveEmailSettings, testEmailSettings,
+                    startAddEmail, cancelAddEmail, confirmAddEmail, removeEmailFromGroup,
+                    addRecipientGroup, removeRecipientGroup,
+                    startEditGroupName, finishEditGroupName, cancelEditGroupName,
                     openMonitorDetail, openAddDialog, openEditDialog,
                     addParam, removeParam, addHeader, removeHeader,
                     sendTestRequest, submitForm, deleteMonitor, resolveAlert,

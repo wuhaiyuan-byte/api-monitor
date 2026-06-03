@@ -3,9 +3,9 @@ import re
 import json
 import statistics
 import smtplib
-from datetime import datetime
+from datetime import datetime, timedelta
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -18,40 +18,146 @@ from ws_manager import manager
 scheduler = AsyncIOScheduler()
 
 
-async def send_alert_email(monitor_name: str, alert_type: str, description: str):
+# In-memory repeat-suppression cache: {(monitor_id, alert_type): last_sent_ts}
+_last_alert_sent: dict = {}
+
+
+def _is_alert_type_enabled(settings: dict, alert_type_value: str) -> bool:
+    """Check if email is enabled for a given alert type."""
+    type_to_key = {
+        "status": "email_alert_on_status",
+        "latency": "email_alert_on_latency",
+        "body_mismatch": "email_alert_on_body",
+        "timeout": "email_alert_on_timeout",
+    }
+    key = type_to_key.get(alert_type_value)
+    if not key:
+        return True
+    return settings.get(key, "true") == "true"
+
+
+def _is_in_cooldown(monitor_id: int, alert_type_value: str, settings: dict) -> bool:
+    """Check if we're still in the repeat-suppression window."""
+    try:
+        cooldown = int(settings.get("email_repeat_suppress_minutes", "10"))
+    except (ValueError, TypeError):
+        cooldown = 10
+    if cooldown <= 0:
+        return False
+    key = (monitor_id, alert_type_value)
+    last_ts = _last_alert_sent.get(key)
+    if not last_ts:
+        return False
+    elapsed = (datetime.utcnow() - last_ts).total_seconds()
+    return elapsed < cooldown * 60
+
+
+def _mark_alert_sent(monitor_id: int, alert_type_value: str):
+    _last_alert_sent[(monitor_id, alert_type_value)] = datetime.utcnow()
+
+
+def _collect_recipients(settings: dict) -> list:
+    """Resolve the final recipient list from groups (or legacy to_emails)."""
+    raw_groups = settings.get("email_recipient_groups", "")
+    recipients: list = []
+    if raw_groups:
+        try:
+            groups = json.loads(raw_groups)
+            for g in groups:
+                for e in g.get("emails", []):
+                    if e and e.strip():
+                        recipients.append(e.strip())
+        except json.JSONDecodeError:
+            pass
+    if not recipients:
+        legacy = settings.get("to_emails", "")
+        if legacy:
+            recipients = [e.strip() for e in legacy.split(",") if e.strip()]
+    seen = set()
+    deduped = []
+    for r in recipients:
+        if r not in seen:
+            seen.add(r)
+            deduped.append(r)
+    return deduped
+
+
+def _send_email_sync(settings: dict, subject: str, body: str):
+    """Synchronous SMTP send. Returns (ok: bool, error: str, recipients: list)."""
+    smtp_host = settings.get("smtp_host", "smtp.gmail.com")
+    try:
+        smtp_port = int(settings.get("smtp_port", "587"))
+    except (ValueError, TypeError):
+        smtp_port = 587
+    smtp_user = settings.get("smtp_user", "")
+    smtp_password = settings.get("smtp_password", "")
+    from_email = settings.get("from_email", "")
+    use_tls = settings.get("use_tls", "true") == "true"
+    recipients = _collect_recipients(settings)
+
+    if not recipients:
+        return False, "收件人列表为空", []
+
+    msg = MIMEMultipart()
+    msg['From'] = from_email
+    msg['To'] = ", ".join(recipients)
+    msg['Subject'] = subject
+    msg.attach(MIMEText(body, 'plain', 'utf-8'))
+
+    try:
+        if use_tls:
+            server = smtplib.SMTP(smtp_host, smtp_port, timeout=10)
+            server.starttls()
+        else:
+            server = smtplib.SMTP(smtp_host, smtp_port, timeout=10)
+        server.login(smtp_user, smtp_password)
+        server.sendmail(from_email, recipients, msg.as_string())
+        server.quit()
+        return True, "", recipients
+    except Exception as e:
+        return False, str(e), []
+
+
+async def send_alert_email(monitor_name: str, alert_type: str, description: str,
+                           monitor_id: int = None, is_recovery: bool = False):
     async with async_session_maker() as session:
         result = await session.execute(select(Settings).where(Settings.key == "email_enabled"))
         enabled_setting = result.scalar_one_or_none()
-
         if not enabled_setting or enabled_setting.value != "true":
             return
 
         result = await session.execute(select(Settings))
         settings = {s.key: s.value for s in result.scalars().all()}
 
-        smtp_host = settings.get("smtp_host", "smtp.gmail.com")
-        smtp_port = int(settings.get("smtp_port", "587"))
-        smtp_user = settings.get("smtp_user", "")
-        smtp_password = settings.get("smtp_password", "")
-        from_email = settings.get("from_email", "")
-        to_emails = settings.get("to_emails", "")
-        use_tls = settings.get("use_tls", "true") == "true"
+        if is_recovery:
+            if settings.get("email_alert_on_recovery", "false") != "true":
+                return
+        else:
+            if not _is_alert_type_enabled(settings, alert_type):
+                print(f"Alert email skipped: type {alert_type} disabled")
+                return
+            if monitor_id is not None and _is_in_cooldown(monitor_id, alert_type, settings):
+                print(f"Alert email skipped: {monitor_name} {alert_type} in cooldown")
+                return
 
-        if not to_emails:
-            return
+        if is_recovery:
+            subject = f"[API Monitor] 恢复通知 - {monitor_name}"
+            body = f"""API Monitor 恢复通知
 
-        try:
+监控项: {monitor_name}
+状态: 已恢复正常
+时间: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}
+
+告警已解除，无需处理。
+"""
+        else:
             alert_type_map = {
                 "status": "状态异常",
                 "latency": "延迟异常",
-                "body_mismatch": "内容异常"
+                "body_mismatch": "内容异常",
+                "timeout": "请求超时",
             }
-
-            msg = MIMEMultipart()
-            msg['From'] = from_email
-            msg['To'] = to_emails
-            msg['Subject'] = f"[API Monitor] 告警通知 - {monitor_name}"
-
+            subject = f"[API Monitor] 告警通知 - {monitor_name}"
             body = f"""API Monitor 告警通知
 
 监控项: {monitor_name}
@@ -61,20 +167,14 @@ async def send_alert_email(monitor_name: str, alert_type: str, description: str)
 
 请及时处理。
 """
-            msg.attach(MIMEText(body, 'plain', 'utf-8'))
 
-            if use_tls:
-                server = smtplib.SMTP(smtp_host, smtp_port)
-                server.starttls()
-            else:
-                server = smtplib.SMTP(smtp_host, smtp_port)
-
-            server.login(smtp_user, smtp_password)
-            server.sendmail(from_email, to_emails.split(','), msg.as_string())
-            server.quit()
-            print(f"Alert email sent for {monitor_name}")
-        except Exception as e:
-            print(f"Failed to send alert email: {e}")
+        ok, err, _ = _send_email_sync(settings, subject, body)
+        if ok:
+            print(f"Alert email sent for {monitor_name} ({alert_type})")
+            if not is_recovery and monitor_id is not None:
+                _mark_alert_sent(monitor_id, alert_type)
+        else:
+            print(f"Failed to send alert email: {err}")
 
 
 async def check_monitor(monitor_id: int):
@@ -153,6 +253,30 @@ async def check_monitor(monitor_id: int):
             await session.commit()
             await session.refresh(check_result)
 
+            # Recovery detection: look at the most recent previous check
+            if not is_anomaly:
+                prev_check_result = await session.execute(
+                    select(CheckResult)
+                    .where(CheckResult.monitor_id == monitor_id)
+                    .where(CheckResult.id != check_result.id)
+                    .order_by(CheckResult.checked_at.desc())
+                    .limit(1)
+                )
+                prev = prev_check_result.scalar_one_or_none()
+                if prev and prev.is_anomaly:
+                    # Transition from anomaly -> normal: fire recovery
+                    await send_alert_email(
+                        monitor.name, "recovery", "已恢复正常",
+                        monitor_id=monitor_id, is_recovery=True
+                    )
+                    # Resolve open alerts
+                    await session.execute(
+                        update(Alert)
+                        .where(Alert.monitor_id == monitor_id, Alert.is_resolved == False)
+                        .values(is_resolved=True)
+                    )
+                    await session.commit()
+
             if is_anomaly and alert_type:
                 alert = Alert(
                     monitor_id=monitor_id,
@@ -177,7 +301,10 @@ async def check_monitor(monitor_id: int):
                     }
                 })
 
-                await send_alert_email(monitor.name, alert_type.value, alert_description)
+                await send_alert_email(
+                    monitor.name, alert_type.value, alert_description,
+                    monitor_id=monitor_id
+                )
 
             status = "anomaly" if is_anomaly else "normal"
             await manager.broadcast({
@@ -217,7 +344,7 @@ async def check_monitor(monitor_id: int):
                 }
             })
 
-            await send_alert_email(monitor.name, "status", "请求超时")
+            await send_alert_email(monitor.name, "status", "请求超时", monitor_id=monitor_id)
 
             await manager.broadcast({
                 "type": "status_update",
