@@ -601,6 +601,9 @@
                             <div>
                                 <span style="font-weight: 590; margin-right: 8px; color: var(--text-primary);">{{ alert.monitor_name }}</span>
                                 <span class="tag" :class="alert.is_resolved ? 'active' : 'error'">{{ alert.is_resolved ? 'Resolved' : 'Active' }}</span>
+                                <span v-if="alert.consecutive_failures != null && alert.threshold != null" class="tag" style="margin-left: 6px; background: var(--bg-elevated); color: var(--text-secondary);">
+                                    连续 {{ alert.consecutive_failures }}/{{ alert.threshold }}
+                                </span>
                             </div>
                             <button v-if="!alert.is_resolved" class="action-btn primary" @click="resolveAlert(alert)">Mark Resolved</button>
                         </div>
@@ -938,6 +941,22 @@
                                 <el-form-item label="Check Interval (seconds)"><el-input-number v-model="monitorForm.interval_seconds" :min="10" :max="3600" style="width: 100%;"></el-input-number></el-form-item>
                                 <el-form-item label="Timeout (seconds)"><el-input-number v-model="monitorForm.timeout_seconds" :min="1" :max="60" style="width: 100%;"></el-input-number></el-form-item>
                             </el-form>
+
+                            <el-divider content-position="left">连续失败告警阈值</el-divider>
+                            <el-form label-position="top" class="settings-form">
+                                <el-form-item label="状态码异常阈值 (连续 N 次)">
+                                    <el-input-number v-model="monitorForm.failure_threshold_status" :min="1" :max="100" style="width: 100%;"></el-input-number>
+                                </el-form-item>
+                                <el-form-item label="延迟异常阈值 (连续 N 次)">
+                                    <el-input-number v-model="monitorForm.failure_threshold_latency" :min="1" :max="100" style="width: 100%;"></el-input-number>
+                                </el-form-item>
+                                <el-form-item label="内容不匹配阈值 (连续 N 次)">
+                                    <el-input-number v-model="monitorForm.failure_threshold_body" :min="1" :max="100" style="width: 100%;"></el-input-number>
+                                </el-form-item>
+                                <el-form-item label="超时阈值 (连续 N 次)">
+                                    <el-input-number v-model="monitorForm.failure_threshold_timeout" :min="1" :max="100" style="width: 100%;"></el-input-number>
+                                </el-form-item>
+                            </el-form>
                         </div>
                     </div>
 
@@ -1036,7 +1055,11 @@
                     expected_body_regex: '',
                     latency_threshold_ms: null,
                     interval_seconds: 60,
-                    timeout_seconds: 30
+                    timeout_seconds: 30,
+                    failure_threshold_status: 2,
+                    failure_threshold_latency: 2,
+                    failure_threshold_body: 2,
+                    failure_threshold_timeout: 2
                 });
 
                 const emailSettings = reactive({
@@ -1391,7 +1414,11 @@ function toBeijingDate(dateStr) {
                         expected_body_regex: '',
                         latency_threshold_ms: null,
                         interval_seconds: 60,
-                        timeout_seconds: 30
+                        timeout_seconds: 30,
+                        failure_threshold_status: 2,
+                        failure_threshold_latency: 2,
+                        failure_threshold_body: 2,
+                        failure_threshold_timeout: 2
                     });
                     responsePanel.show = false;
                     formDialogVisible.value = true;
@@ -1423,7 +1450,11 @@ function toBeijingDate(dateStr) {
                             expected_body_regex: monitor.expected_body_regex || '',
                             latency_threshold_ms: monitor.latency_threshold_ms || null,
                             interval_seconds: monitor.interval_seconds || 60,
-                            timeout_seconds: monitor.timeout_seconds || 30
+                            timeout_seconds: monitor.timeout_seconds || 30,
+                            failure_threshold_status: monitor.failure_threshold_status || 2,
+                            failure_threshold_latency: monitor.failure_threshold_latency || 2,
+                            failure_threshold_body: monitor.failure_threshold_body || 2,
+                            failure_threshold_timeout: monitor.failure_threshold_timeout || 2
                         });
                         responsePanel.show = false;
                         formDialogVisible.value = true;
@@ -1538,7 +1569,11 @@ function toBeijingDate(dateStr) {
                             expected_body_regex: monitorForm.expected_body_regex || null,
                             latency_threshold_ms: monitorForm.latency_threshold_ms || null,
                             interval_seconds: monitorForm.interval_seconds,
-                            timeout_seconds: monitorForm.timeout_seconds
+                            timeout_seconds: monitorForm.timeout_seconds,
+                            failure_threshold_status: monitorForm.failure_threshold_status || 2,
+                            failure_threshold_latency: monitorForm.failure_threshold_latency || 2,
+                            failure_threshold_body: monitorForm.failure_threshold_body || 2,
+                            failure_threshold_timeout: monitorForm.failure_threshold_timeout || 2
                         };
                         if (monitorForm.bodyType !== 'none' && monitorForm.body) payload.body = monitorForm.body;
                         if (isEditMode.value) {

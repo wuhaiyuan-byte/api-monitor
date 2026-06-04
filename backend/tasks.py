@@ -177,6 +177,41 @@ async def send_alert_email(monitor_name: str, alert_type: str, description: str,
             print(f"Failed to send alert email: {err}")
 
 
+def _get_threshold_for(monitor, alert_type: AlertType) -> int:
+    """Map AlertType to the monitor's corresponding threshold field. Default 2."""
+    mapping = {
+        AlertType.status: monitor.failure_threshold_status,
+        AlertType.latency: monitor.failure_threshold_latency,
+        AlertType.body_mismatch: monitor.failure_threshold_body,
+        AlertType.timeout: monitor.failure_threshold_timeout,
+    }
+    val = mapping.get(alert_type)
+    if not val or val < 1:
+        return 2
+    return val
+
+
+async def _count_recent_consecutive_anomalies(
+    session, monitor_id: int, anomaly_type: AlertType, limit: int
+) -> int:
+    """Count how many of the most recent <limit> check_results for this monitor
+    were anomalies of the same type. Used to drive the consecutive-failure logic.
+    """
+    if limit <= 0:
+        return 0
+    type_value = anomaly_type.value if hasattr(anomaly_type, "value") else str(anomaly_type)
+    result = await session.execute(
+        select(CheckResult)
+        .where(CheckResult.monitor_id == monitor_id)
+        .where(CheckResult.is_anomaly == True)
+        .where(CheckResult.anomaly_type == type_value)
+        .order_by(CheckResult.checked_at.desc())
+        .limit(limit)
+    )
+    rows = result.scalars().all()
+    return len(rows)
+
+
 async def check_monitor(monitor_id: int):
     async with async_session_maker() as session:
         result = await session.execute(select(Monitor).where(Monitor.id == monitor_id))
@@ -249,11 +284,12 @@ async def check_monitor(monitor_id: int):
                     alert_description = f"响应时间异常: {elapsed_ms:.2f}ms > {threshold_type}阈值 {threshold:.2f}ms"
 
             check_result.is_anomaly = is_anomaly
+            check_result.anomaly_type = alert_type if is_anomaly else None
             session.add(check_result)
             await session.commit()
             await session.refresh(check_result)
 
-            # Recovery detection: look at the most recent previous check
+            # Recovery detection: previous check was anomaly, this one is normal -> recovery.
             if not is_anomaly:
                 prev_check_result = await session.execute(
                     select(CheckResult)
@@ -264,12 +300,10 @@ async def check_monitor(monitor_id: int):
                 )
                 prev = prev_check_result.scalar_one_or_none()
                 if prev and prev.is_anomaly:
-                    # Transition from anomaly -> normal: fire recovery
                     await send_alert_email(
                         monitor.name, "recovery", "已恢复正常",
                         monitor_id=monitor_id, is_recovery=True
                     )
-                    # Resolve open alerts
                     await session.execute(
                         update(Alert)
                         .where(Alert.monitor_id == monitor_id, Alert.is_resolved == False)
@@ -278,15 +312,33 @@ async def check_monitor(monitor_id: int):
                     await session.commit()
 
             if is_anomaly and alert_type:
+                threshold_value = _get_threshold_for(monitor, alert_type)
+                # Count how many recent anomalies of this type we have (including this one).
+                recent_count = await _count_recent_consecutive_anomalies(
+                    session, monitor_id, alert_type, threshold_value
+                )
+                # is_fired = True only when threshold reached.
+                is_fired = recent_count >= threshold_value
+                if is_fired:
+                    desc = alert_description
+                else:
+                    desc = (
+                        f"{alert_description} "
+                        f"(累积 {recent_count}/{threshold_value})"
+                    )
                 alert = Alert(
                     monitor_id=monitor_id,
                     alert_type=alert_type,
-                    description=alert_description,
+                    description=desc,
                     is_resolved=False,
-                    created_at=datetime.utcnow()
+                    is_fired=is_fired,
+                    consecutive_failures=recent_count,
+                    threshold=threshold_value,
+                    created_at=datetime.utcnow(),
                 )
                 session.add(alert)
                 await session.commit()
+                await session.refresh(alert)
 
                 await manager.broadcast({
                     "type": "new_alert",
@@ -294,17 +346,22 @@ async def check_monitor(monitor_id: int):
                         "id": alert.id,
                         "monitor_id": monitor_id,
                         "alert_type": alert_type.value,
-                        "description": alert_description,
+                        "description": desc,
                         "is_resolved": False,
+                        "is_fired": is_fired,
+                        "consecutive_failures": recent_count,
+                        "threshold": threshold_value,
                         "created_at": alert.created_at.isoformat(),
                         "monitor_name": monitor.name
                     }
                 })
 
-                await send_alert_email(
-                    monitor.name, alert_type.value, alert_description,
-                    monitor_id=monitor_id
-                )
+                # Only send email / push WebSocket "fired" notification when threshold reached.
+                if is_fired:
+                    await send_alert_email(
+                        monitor.name, alert_type.value, alert_description,
+                        monitor_id=monitor_id
+                    )
 
             status = "anomaly" if is_anomaly else "normal"
             await manager.broadcast({
@@ -318,33 +375,54 @@ async def check_monitor(monitor_id: int):
             })
 
         except httpx.TimeoutException:
-            check_result.error_message = "请求超时 (30秒)"
+            timeout_value = monitor.timeout_seconds or 30
+            check_result.error_message = f"请求超时 ({timeout_value}秒)"
             check_result.is_anomaly = True
+            check_result.anomaly_type = AlertType.timeout
             session.add(check_result)
             await session.commit()
 
+            threshold_value = _get_threshold_for(monitor, AlertType.timeout)
+            recent_count = await _count_recent_consecutive_anomalies(
+                session, monitor_id, AlertType.timeout, threshold_value
+            )
+            is_fired = recent_count >= threshold_value
+            if is_fired:
+                desc = "请求超时"
+            else:
+                desc = f"请求超时 (累积 {recent_count}/{threshold_value})"
             alert = Alert(
                 monitor_id=monitor_id,
-                alert_type=AlertType.status,
-                description="请求超时",
+                alert_type=AlertType.timeout,
+                description=desc,
                 is_resolved=False,
-                created_at=datetime.utcnow()
+                is_fired=is_fired,
+                consecutive_failures=recent_count,
+                threshold=threshold_value,
+                created_at=datetime.utcnow(),
             )
             session.add(alert)
             await session.commit()
+            await session.refresh(alert)
 
             await manager.broadcast({
                 "type": "new_alert",
                 "alert": {
+                    "id": alert.id,
                     "monitor_id": monitor_id,
-                    "alert_type": "status",
-                    "description": "请求超时",
+                    "alert_type": AlertType.timeout.value,
+                    "description": desc,
                     "is_resolved": False,
+                    "is_fired": is_fired,
+                    "consecutive_failures": recent_count,
+                    "threshold": threshold_value,
+                    "created_at": alert.created_at.isoformat(),
                     "monitor_name": monitor.name
                 }
             })
 
-            await send_alert_email(monitor.name, "status", "请求超时", monitor_id=monitor_id)
+            if is_fired:
+                await send_alert_email(monitor.name, AlertType.timeout.value, "请求超时", monitor_id=monitor_id)
 
             await manager.broadcast({
                 "type": "status_update",
@@ -359,8 +437,54 @@ async def check_monitor(monitor_id: int):
         except Exception as e:
             check_result.error_message = str(e)
             check_result.is_anomaly = True
+            check_result.anomaly_type = AlertType.status
             session.add(check_result)
             await session.commit()
+
+            threshold_value = _get_threshold_for(monitor, AlertType.status)
+            recent_count = await _count_recent_consecutive_anomalies(
+                session, monitor_id, AlertType.status, threshold_value
+            )
+            is_fired = recent_count >= threshold_value
+            if is_fired:
+                desc = f"请求错误: {str(e)[:120]}"
+            else:
+                desc = f"请求错误: {str(e)[:120]} (累积 {recent_count}/{threshold_value})"
+            alert = Alert(
+                monitor_id=monitor_id,
+                alert_type=AlertType.status,
+                description=desc,
+                is_resolved=False,
+                is_fired=is_fired,
+                consecutive_failures=recent_count,
+                threshold=threshold_value,
+                created_at=datetime.utcnow(),
+            )
+            session.add(alert)
+            await session.commit()
+            await session.refresh(alert)
+
+            await manager.broadcast({
+                "type": "new_alert",
+                "alert": {
+                    "id": alert.id,
+                    "monitor_id": monitor_id,
+                    "alert_type": AlertType.status.value,
+                    "description": desc,
+                    "is_resolved": False,
+                    "is_fired": is_fired,
+                    "consecutive_failures": recent_count,
+                    "threshold": threshold_value,
+                    "created_at": alert.created_at.isoformat(),
+                    "monitor_name": monitor.name
+                }
+            })
+
+            if is_fired:
+                await send_alert_email(
+                    monitor.name, AlertType.status.value, f"请求错误: {str(e)[:120]}",
+                    monitor_id=monitor_id
+                )
 
             await manager.broadcast({
                 "type": "status_update",

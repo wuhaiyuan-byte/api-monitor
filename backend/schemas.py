@@ -16,6 +16,10 @@ class MonitorBase(BaseModel):
     interval_seconds: int = 60
     timeout_seconds: int = 30
     is_active: bool = True
+    failure_threshold_status: int = 2
+    failure_threshold_latency: int = 2
+    failure_threshold_body: int = 2
+    failure_threshold_timeout: int = 2
 
 
 class MonitorCreate(MonitorBase):
@@ -34,6 +38,10 @@ class MonitorUpdate(BaseModel):
     interval_seconds: Optional[int] = None
     timeout_seconds: Optional[int] = None
     is_active: Optional[bool] = None
+    failure_threshold_status: Optional[int] = None
+    failure_threshold_latency: Optional[int] = None
+    failure_threshold_body: Optional[int] = None
+    failure_threshold_timeout: Optional[int] = None
 
 
 class MonitorResponse(MonitorBase):
@@ -51,6 +59,7 @@ class CheckResultBase(BaseModel):
     body_snippet: Optional[str] = None
     error_message: Optional[str] = None
     is_anomaly: bool = False
+    anomaly_type: Optional[AlertType] = None
     checked_at: datetime
 
 
@@ -72,6 +81,9 @@ class AlertBase(BaseModel):
 class AlertResponse(AlertBase):
     id: int
     monitor_name: Optional[str] = None
+    is_fired: bool = True
+    consecutive_failures: int = 1
+    threshold: int = 1
 
     class Config:
         from_attributes = True

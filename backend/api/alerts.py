@@ -31,7 +31,10 @@ async def get_alerts(
             "description": alert.description,
             "is_resolved": alert.is_resolved,
             "created_at": alert.created_at,
-            "monitor_name": monitor_name
+            "monitor_name": monitor_name,
+            "is_fired": getattr(alert, "is_fired", True),
+            "consecutive_failures": getattr(alert, "consecutive_failures", 1),
+            "threshold": getattr(alert, "threshold", 1),
         }
         alerts.append(AlertResponse(**alert_dict))
 
