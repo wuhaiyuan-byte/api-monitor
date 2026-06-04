@@ -105,7 +105,9 @@ def _send_email_sync(settings: dict, subject: str, body: str):
     msg.attach(MIMEText(body, 'plain', 'utf-8'))
 
     try:
-        if use_tls:
+        if smtp_port == 465:
+            server = smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=10)
+        elif use_tls:
             server = smtplib.SMTP(smtp_host, smtp_port, timeout=10)
             server.starttls()
         else:
