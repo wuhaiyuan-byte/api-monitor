@@ -165,7 +165,9 @@ async def test_email_settings(
         body = test_body.replace("{timestamp}", datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'))
         msg.attach(MIMEText(body, 'plain', 'utf-8'))
 
-        if use_tls:
+        if smtp_port == 465:
+            server = smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=10)
+        elif use_tls:
             server = smtplib.SMTP(smtp_host, smtp_port, timeout=10)
             server.starttls()
         else:
