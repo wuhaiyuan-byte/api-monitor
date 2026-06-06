@@ -255,15 +255,18 @@ async def check_oss_monitor(oss_monitor_id: int):
 
         # If stale was the cause, surface that into error_msg so the dashboard
         # shows the freshness reason AND lists the stale files (so the user
-        # can see what was found and how old it is).
+        # can see what was found and how old it is). Show all of them (up
+        # to all_matches cap of 20) sorted newest-first so the user can see
+        # whether their today file is in the list.
         if is_stale and status == "not_matched" and monitor.expected_present:
+            sorted_stale = sorted(
+                stale_matches, key=lambda x: x[1] or datetime.min, reverse=True
+            )
             lines = [f"匹配项已陈旧 (max_age_hours={monitor.max_age_hours}, 扫描 {scanned} 个对象，找到 {len(stale_matches)} 个匹配项全部超期):"]
             cutoff_str = (datetime.utcnow() - timedelta(hours=monitor.max_age_hours)).strftime("%Y-%m-%d %H:%M:%S")
-            for k, fm in stale_matches[:5]:
+            for k, fm in sorted_stale:
                 fm_str = fm.strftime("%Y-%m-%d %H:%M:%S") if fm else "unknown"
                 lines.append(f"  - {k} (last_modified={fm_str}, 早于 {cutoff_str})")
-            if len(stale_matches) > 5:
-                lines.append(f"  ...还有 {len(stale_matches) - 5} 个")
             error_msg = (
                 (error_msg + "; " if error_msg else "")
                 + "\n".join(lines)
