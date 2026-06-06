@@ -52,6 +52,29 @@ def _build_bucket_from(
 # ---------------------------------------------------------------------------
 # Scan core
 # ---------------------------------------------------------------------------
+def _to_datetime(value):
+    """Normalize oss2's last_modified which can be datetime OR unix timestamp
+    int depending on version / response format. Return naive UTC datetime or
+    None.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, (int, float)):
+        try:
+            return datetime.utcfromtimestamp(float(value))
+        except (ValueError, OSError):
+            return None
+    if isinstance(value, str):
+        # Some oss2 responses return ISO-ish strings; try to parse.
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=None)
+        except ValueError:
+            return None
+    return None
+
+
 async def _scan(
     bucket: oss2.Bucket,
     prefix: str,
@@ -170,8 +193,7 @@ async def check_oss_monitor(oss_monitor_id: int):
         is_stale = False
         if matched and first and monitor.max_age_hours:
             cutoff = datetime.utcnow() - timedelta(hours=monitor.max_age_hours)
-            fm = first.last_modified
-            # oss2 returns naive datetime in UTC; compare in UTC.
+            fm = _to_datetime(first.last_modified)
             if fm is not None and fm < cutoff:
                 is_stale = True
 
@@ -186,7 +208,7 @@ async def check_oss_monitor(oss_monitor_id: int):
             status = "matched" if effective else "not_matched"
             matched_key = first.key if effective else None
             file_size = first.size if effective else None
-            file_modified_dt = first.last_modified if effective else None
+            file_modified_dt = _to_datetime(first.last_modified) if effective else None
             error_msg = None
         else:
             # expected_present = False: alert only if a FRESH file exists.
@@ -195,7 +217,7 @@ async def check_oss_monitor(oss_monitor_id: int):
             status = "not_matched" if fresh_match else "matched"
             matched_key = first.key if fresh_match else None
             file_size = first.size if fresh_match else None
-            file_modified_dt = first.last_modified if fresh_match else None
+            file_modified_dt = _to_datetime(first.last_modified) if fresh_match else None
             error_msg = None
 
         if truncated:
