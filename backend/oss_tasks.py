@@ -80,16 +80,19 @@ async def _scan(
     prefix: str,
     keyword: str,
     match_mode: str,
-) -> Tuple[bool, Optional["oss2.ObjectSummary"], int, bool, Optional[str]]:
+) -> Tuple[bool, Optional["oss2.ObjectSummary"], int, bool, Optional[str], list]:
     """Run a single scan pass.
 
     Returns:
-        (matched, first_match_summary, scanned_count, truncated, error_message)
+        (matched, first_match_summary, scanned_count, truncated, error_message, all_matches)
+        all_matches is a list of (key, last_modified_dt_or_None) for every
+        key that hit the keyword filter, capped at 20 to keep error messages sane.
     """
     try:
         scanned = 0
         truncated = False
-        # oss2.ObjectIteratorV2 supports max_keys for safety.
+        all_matches: list = []
+        first: Optional["oss2.ObjectSummary"] = None
         for obj in oss2.ObjectIteratorV2(bucket, prefix=prefix or "", max_keys=SCAN_LIMIT + 1):
             scanned += 1
             if scanned > SCAN_LIMIT:
@@ -97,16 +100,21 @@ async def _scan(
                 break
             key = obj.key
             if match_mode == "regex":
-                if re.search(keyword, key):
-                    return True, obj, scanned, truncated, None
+                hit = bool(re.search(keyword, key))
             else:  # 'contains'
-                if keyword in key:
-                    return True, obj, scanned, truncated, None
-        return False, None, scanned, truncated, None
+                hit = keyword in key
+            if hit:
+                if first is None:
+                    first = obj
+                if len(all_matches) < 20:
+                    all_matches.append((key, _to_datetime(obj.last_modified)))
+        if all_matches:
+            return True, first, scanned, truncated, None, all_matches
+        return False, None, scanned, truncated, None, []
     except oss2.exceptions.OssError as e:
-        return False, None, 0, False, f"OSS API error: {e.code} {e.message}"
+        return False, None, 0, False, f"OSS API error: {e.code} {e.message}", []
     except Exception as e:  # network, auth, etc.
-        return False, None, 0, False, str(e)[:500]
+        return False, None, 0, False, str(e)[:500], []
 
 
 # ---------------------------------------------------------------------------
@@ -183,18 +191,25 @@ async def check_oss_monitor(oss_monitor_id: int):
             return
 
         bucket = _build_bucket(monitor)
-        matched, first, scanned, truncated, err = await _scan(
+        matched, first, scanned, truncated, err, all_matches = await _scan(
             bucket, monitor.prefix or "", monitor.keyword, monitor.match_mode
         )
 
-        # Determine if the matched file is "stale" (older than max_age_hours).
-        # Semantics: stale files are treated as "not present" for the purpose
-        # of this check, regardless of expected_present direction.
+        # Determine if any/all matched files are "stale" (older than max_age_hours).
+        # If any match is fresh, the check passes. If all matches are stale (or
+        # there are no matches at all), the result is "not matched".
         is_stale = False
-        if matched and first and monitor.max_age_hours:
+        fresh_matches: list = []
+        stale_matches: list = []
+        if matched and monitor.max_age_hours:
             cutoff = datetime.utcnow() - timedelta(hours=monitor.max_age_hours)
-            fm = _to_datetime(first.last_modified)
-            if fm is not None and fm < cutoff:
+            for key, fm in all_matches:
+                if fm is None or fm < cutoff:
+                    stale_matches.append((key, fm))
+                else:
+                    fresh_matches.append((key, fm))
+            # A match exists in OSS but all of them are stale.
+            if not fresh_matches and stale_matches:
                 is_stale = True
 
         if err:
@@ -204,20 +219,32 @@ async def check_oss_monitor(oss_monitor_id: int):
             file_modified_dt = None
             error_msg = err
         elif monitor.expected_present:
-            effective = matched and not is_stale
+            effective = bool(fresh_matches)
             status = "matched" if effective else "not_matched"
-            matched_key = first.key if effective else None
-            file_size = first.size if effective else None
-            file_modified_dt = _to_datetime(first.last_modified) if effective else None
+            if effective:
+                k, fm = fresh_matches[0]
+                matched_key = k
+                file_modified_dt = fm
+                file_size = first.size if first and first.key == k else None
+            else:
+                matched_key = None
+                file_size = None
+                file_modified_dt = None
             error_msg = None
         else:
             # expected_present = False: alert only if a FRESH file exists.
             # A stale file does not count as "unexpectedly present".
-            fresh_match = matched and not is_stale
+            fresh_match = bool(fresh_matches)
             status = "not_matched" if fresh_match else "matched"
-            matched_key = first.key if fresh_match else None
-            file_size = first.size if fresh_match else None
-            file_modified_dt = _to_datetime(first.last_modified) if fresh_match else None
+            if fresh_match:
+                k, fm = fresh_matches[0]
+                matched_key = k
+                file_modified_dt = fm
+                file_size = first.size if first and first.key == k else None
+            else:
+                matched_key = None
+                file_size = None
+                file_modified_dt = None
             error_msg = None
 
         if truncated:
@@ -227,11 +254,19 @@ async def check_oss_monitor(oss_monitor_id: int):
             )
 
         # If stale was the cause, surface that into error_msg so the dashboard
-        # shows the freshness reason even before any alert is fired.
+        # shows the freshness reason AND lists the stale files (so the user
+        # can see what was found and how old it is).
         if is_stale and status == "not_matched" and monitor.expected_present:
+            lines = [f"匹配项已陈旧 (max_age_hours={monitor.max_age_hours}, 扫描 {scanned} 个对象，找到 {len(stale_matches)} 个匹配项全部超期):"]
+            cutoff_str = (datetime.utcnow() - timedelta(hours=monitor.max_age_hours)).strftime("%Y-%m-%d %H:%M:%S")
+            for k, fm in stale_matches[:5]:
+                fm_str = fm.strftime("%Y-%m-%d %H:%M:%S") if fm else "unknown"
+                lines.append(f"  - {k} (last_modified={fm_str}, 早于 {cutoff_str})")
+            if len(stale_matches) > 5:
+                lines.append(f"  ...还有 {len(stale_matches) - 5} 个")
             error_msg = (
                 (error_msg + "; " if error_msg else "")
-                + f"匹配项已陈旧 (max_age_hours={monitor.max_age_hours})"
+                + "\n".join(lines)
             )
 
         # Persist history (kept forever per spec).
