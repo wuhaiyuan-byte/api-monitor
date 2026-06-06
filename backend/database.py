@@ -1,7 +1,7 @@
 import os
 import logging
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
-from sqlalchemy import text
+from sqlalchemy import inspect, text
 from sqlalchemy.orm import sessionmaker
 from models import Base
 import asyncio
@@ -90,7 +90,34 @@ async def _migrate():
         logging.warning(f"DB migration step failed (non-fatal): {e}")
 
 
+async def _ensure_oss_tables():
+    """Create the OSS module tables if they don't exist yet. We import here
+    (not at module top) to avoid a hard dependency on cryptography / oss2 at
+    import time for code paths that don't touch the OSS module.
+    Idempotent: safe to run on every startup.
+    """
+    try:
+        from oss_models import Base as OssBase
+        async with engine.begin() as conn:
+            def _existing(sync_conn):
+                return set(inspect(sync_conn).get_table_names())
+            existing = await conn.run_sync(_existing)
+            needed = {"oss_monitors", "oss_check_results"} - existing
+            if needed:
+                await conn.run_sync(
+                    OssBase.metadata.create_all,
+                    tables=[t for t in OssBase.metadata.sorted_tables
+                            if t.name in needed],
+                )
+    except Exception as e:
+        logging.warning(f"OSS table init step failed (non-fatal): {e}")
+
+
 async def init_db():
+    await _migrate()
+    await _ensure_oss_tables()
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
     await _migrate()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

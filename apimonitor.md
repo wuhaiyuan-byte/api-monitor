@@ -517,4 +517,244 @@ DATABASE_URL=sqlite+aiosqlite:///./api_monitor.db
 严格按照上述要求生成所有文件，尤其是测试代码、Docker 文件、前端重连逻辑。
 确保 pytest 能够在 backend/ 目录下成功运行全部测试。
 完成后输出简短说明，包含启动命令 docker-compose up --build 和访问地址 http://localhost:8000。
+
+---
+
+九、OSS 文件监控模块（新增，独立子系统）
+
+在已有 HTTP API 监控基础上，新增"OSS 文件监控"子系统：周期性扫描指定 OSS bucket / prefix 下的对象，按关键字匹配规则判断是否存在期望的文件，异常时复用现有邮件告警通道。
+**硬性约束**：不动现有 `monitors` / `check_results` / `alerts` 表，不动 `api/monitors.py` / `api/alerts.py` / `api/settings.py` / `ws_manager.py` / `tasks.py` 已有逻辑。复用 `scheduler` 单例、`manager`（WebSocket）、`async_session_maker`、`send_alert_email`。
+
+9.1 新增依赖（backend/requirements.txt）
+```
+oss2
+cryptography
+```
+
+9.2 新增环境变量（.env.example 追加）
+```
+OSS_ENC_KEY=
+# Fernet key for encrypting per-monitor access key secrets. Leave unset to
+# auto-generate an ephemeral key on startup (secrets won't survive restart).
+# Generate one with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+9.3 新增数据模型（backend/oss_models.py，独立 declarative_base）
+- `OssMonitor`：`id, name, provider(aliyun/s3), endpoint, bucket, region, prefix, keyword, match_mode(contains/regex, 默认 contains), expected_present(bool, 默认 True), failure_threshold(int, 默认 2), access_key_id, access_key_secret_enc(Fernet 密文), interval_seconds(默认 300), is_active(bool, 默认 True), last_status, last_checked_at, last_matched_key, last_matched_size, last_matched_modified, last_error, consecutive_failures(int, 默认 0), created_at`，关系 `check_results`（级联删除）。
+- `OssCheckResult`：`id, oss_monitor_id(FK), status(matched/not_matched/error), matched_key, file_size, file_last_modified, scanned_count, scan_truncated(bool), error_message, checked_at`。
+
+模块级常量 `SCAN_LIMIT = 200`：每次扫描最多遍历 200 个对象，超额即 `scan_truncated=True` 并把警告写进 `error_message`。
+
+9.4 新增加密模块（backend/oss_crypto.py）
+- `get_fernet()`：从 `OSS_ENC_KEY` 读 key；未设置时自动生成 ephemeral key 并 log warning（不阻塞启动）。
+- `encrypt_secret(plain) / decrypt_secret(cipher)`：Fernet 加解密。
+- `mask_secret(plain)`：返回 `***last4` 用于 API 响应脱敏。
+
+9.5 新增 Pydantic schemas（backend/oss_schemas.py）
+- `OssMonitorCreate`：`access_key_secret: SecretStr`。
+- `OssMonitorUpdate`：所有字段可选；`access_key_secret` 缺省即不更新。
+- `OssMonitorResponse`：`access_key_secret_masked: str`（脱敏，不回显原文）。
+- `OssCheckResultResponse / OssTestConnectionRequest`。
+
+9.6 新增调度任务模块（backend/oss_tasks.py）
+- `async def check_oss_monitor(oss_monitor_id)` 主流程：
+  1. 取 OssMonitor，decrypt_secret → `oss2.Bucket(auth, endpoint, bucket)`
+  2. `oss2.ObjectIteratorV2(prefix=..., max_keys=SCAN_LIMIT+1)` 遍历
+  3. 应用 keyword 过滤（contains / regex）
+  4. 与 `expected_present` 比较得 `status`（详见 9.7）
+  5. 写 OssCheckResult 历史记录（**永久保留**，不清理）
+  6. 更新 OssMonitor 快照字段（last_status / last_matched_* / last_error）
+  7. 累计 `consecutive_failures`，达到 `failure_threshold` 才调 `send_alert_email`（is_fired 概念沿用现有邮件链）
+  8. 正常时若上轮连续失败累计 ≥ 阈值，发恢复邮件（`is_recovery=True`）
+  9. 通过 `manager.broadcast` 推 `oss_status_update` / `oss_new_alert`（事件 type 加 `oss_` 前缀避免冲突）
+- `add_oss_monitor_job(id, interval)` / `remove_oss_monitor_job(id)` / `async load_active_oss_monitors()`
+- `async test_connection(endpoint, bucket, ak, sk, prefix)`：拉 1 个对象验证连通性
+
+9.7 告警语义
+- `expected_present=True`（应存在）：未找到匹配 → status=not_matched → 累计达阈值 → `oss_missing` 告警
+- `expected_present=False`（不应存在）：找到匹配 → status=not_matched → 累计达阈值 → `oss_unexpected` 告警
+- 邮件文案（写入 `tasks.py:alert_type_map`）：
+  - `oss_missing` → "OSS 文件缺失"
+  - `oss_unexpected` → "OSS 文件异常出现"
+- 邮件开关：复用 `email_alert_on_status`（两类共用）
+
+9.8 新增 API 路由（backend/api/oss.py，prefix="/api"）
+```
+POST   /oss-monitors                     # 创建
+GET    /oss-monitors                     # 列表
+GET    /oss-monitors/{id}                # 详情
+PUT    /oss-monitors/{id}                # 更新（access_key_secret 缺省不更新）
+DELETE /oss-monitors/{id}                # 删除 + 移除调度任务 + 级联删 check_results
+GET    /oss-monitors/{id}/checks?minutes=N   # 历史（永久保留，默认查最近 60 分钟）
+POST   /oss-monitors/{id}/check-now      # 手动触发一次
+POST   /oss-monitors/test-connection     # 临时连通性测试（不入库）
+```
+
+9.9 main.py 改动（最小侵入）
+- 新增 import：`from oss_tasks import load_active_oss_monitors` / `from api.oss import router as oss_router`
+- `lifespan` 末尾加 `await load_active_oss_monitors()`
+- `app.include_router(oss_router, prefix="/api")`
+
+9.10 database.py 改动
+- 新增 `_ensure_oss_tables()`：用 `inspect(engine).get_table_names()` 判断 `oss_monitors` / `oss_check_results` 是否存在；不存在则只对这两张表 `create_all`。
+- `init_db()` 末尾调用 `_ensure_oss_tables()`。
+
+9.11 tasks.py 改动（仅 4 行）
+- `type_to_key` 字典追加 2 项：`oss_missing → email_alert_on_status`、`oss_unexpected → email_alert_on_status`
+- `alert_type_map` 字典追加 2 行文案（见 9.7）
+
+9.12 新增测试（backend/tests/test_oss.py，使用 pytest-asyncio + sqlite+aiosqlite:///:memory:）
+- 用 `unittest.mock.patch.object(oss_tasks.oss2, "Bucket", ...)` 注入假对象，禁止真实网络
+- 覆盖：CRUD / 命中 / 未命中 / expected_present=False 命中 / 连续失败阈值 / 恢复 / 扫描截断（>200 标记 truncated） / OSS 异常 / Fernet 加密往返 / 响应脱敏 / test-connection 成功+失败 / check-now + history
+
+9.13 前端改动（frontend/index.html，单文件）
+- 顶部 tab 行追加 2 个新 tab：`OSS Dashboard` / `OSS Config`（位置在 Config 之后、Settings 之前）
+- 新增 `OSS Dashboard` 内容：卡片网格，复用现有 `.monitor-card` 模板，卡片显示 bucket / prefix / keyword / expect / status / last_check / last_matched_key / last_error
+- 新增 `OSS Config` 内容：表格（Name / Bucket / Keyword / Expect / Interval / Status / Actions），每行 Edit / Run / Delete 按钮
+- 新增"添加/编辑 OSS 监控项"对话框（`.dialog-overlay`），3 个子 tab（复用 `.form-tabs`）：
+  - **连接**：name / provider(aliyun/s3) / endpoint / bucket / region / access_key_id / access_key_secret
+  - **匹配规则**：prefix / keyword / match_mode / expected_present 开关 / failure_threshold
+  - **调度**：interval_seconds(默认 300) / is_active 开关 / 提示"每次扫描最多 200 个对象"
+  - 底部按钮：`Test Connection`（调 `/test-connection`） + `Create` / `Update`
+- 新增"OSS 详情"对话框：显示监控项元数据 + 最近 24 小时检查历史表格
+- JS 新增 state：`ossMonitors / ossDialogVisible / ossDetailDialogVisible / ossDetailMonitor / ossDetailHistory / ossIsEditMode / ossSubmitting / ossTesting / ossEditingId / ossTestResult / activeOssFormTab / ossForm(reactive)`
+- JS 新增函数：`fetchOssMonitors / getOssStatus / ossStatusLabel / openOssAddDialog / openOssEditDialog / ossTestConnection / submitOssForm / deleteOssMonitor / ossCheckNow / openOssDetail`
+- WebSocket 监听追加 `oss_status_update` / `oss_new_alert` 分支，独立更新 `ossMonitors` ref，不污染 `monitors` ref
+- `onMounted` 加 `fetchOssMonitors()`
+- `return {}` 暴露所有新增 state 和函数
+- 复用现有 CSS 类（`.monitor-card` / `.card` / `.table` / `.form-tabs` / `.tag` / `.dialog-overlay` / `.dialog` / `.dialog-footer`），**0 新 CSS**
+
+9.14 路由前缀与事件命名空间
+- 所有 OSS 路由挂在 `/api/oss-monitors` 前缀下
+- WebSocket 事件 type 用 `oss_status_update` / `oss_new_alert`，避免与现有 `status_update` / `new_alert` 冲突
+- 调度器 job id 用 `oss-{id}` 前缀
+
+9.15 验收
+- `docker-compose up --build` 启动后，`/api/oss-monitors` 返回 `[]`
+- 浏览器手测：建 1 条 → Test Connection 成功 → Save → 等 1 个 interval（默认 300s）或点 Run → 卡片状态更新
+- `pytest backend/tests/test_oss.py -v` 全绿
+- `pytest backend/tests/` 全绿（确认 HTTP 监控测试未被影响）
+- 现有 4 个 tab 行为完全不变
+
+十、版本管理
+
+- 任何新功能添加前，Agent 必须先用 `git tag -a <baseline-name> -m "..."` 标记当前 HEAD 作为回退点
+- 完成后用 `git status` / `git diff --stat` 自检改动范围，确认未触碰 "不动" 列表中的文件
+
+---
+
+十一、部署到目标服务器（192.168.3.219）
+
+项目部署到内网服务器 `192.168.3.219`，运行方式为 Docker Compose（沿用项目根目录的 `docker-compose.yml`，`backend` 服务暴露 8000 端口）。
+
+11.1 前提（首次部署时一次性准备）
+1. 目标机已安装 Docker + Docker Compose（v2 推荐：`docker compose`）
+2. 目标机已建好项目目录，例如 `/opt/apimonitor`：
+   ```bash
+   ssh user@192.168.3.219 "sudo mkdir -p /opt/apimonitor && sudo chown -R \$USER /opt/apimonitor"
+   ```
+3. SSH 免密登录已配好（开发机 → 目标机）：
+   ```bash
+   ssh-copy-id user@192.168.3.219
+   ```
+4. `.env` 已准备好并放到目标机 `/opt/apimonitor/.env`（**不要 commit**），至少含：
+   ```
+   DATABASE_URL=postgresql+asyncpg://apimon:apimon123@db:5432/apimon
+   OSS_ENC_KEY=<从开发机用 Fernet 生成的 key 复制过来>
+   ```
+5. Git 远程源已配好（如 `origin` 指向 GitHub / Gitea / 自建 git），开发机与目标机都能拉取。
+
+11.2 首次部署（项目未在目标机存在）
+```bash
+# 在开发机执行
+ssh user@192.168.3.219 "cd /opt && git clone <repo-url> apimonitor"
+scp .env user@192.168.3.219:/opt/apimonitor/.env
+
+ssh user@192.168.3.219 << 'REMOTE'
+  cd /opt/apimonitor
+  # 首次需要建数据卷（compose 文件里已声明 pgdata，此步通常 compose 自动处理）
+  docker compose pull || true
+  docker compose build
+  docker compose up -d
+  sleep 5
+  docker compose ps
+  docker compose logs --tail=50 backend
+REMOTE
+```
+
+11.3 日常更新部署（已部署过，仅推代码）
+提供两种方式，按需选一种。
+
+**方式 A：开发机 git push + 目标机 git pull + 重建容器**
+```bash
+# 开发机
+git push origin main
+
+# 目标机
+ssh user@192.168.3.219 << 'REMOTE'
+  cd /opt/apimonitor
+  git pull origin main
+  docker compose build backend
+  docker compose up -d backend
+  docker compose ps
+  docker compose logs --tail=30 backend
+REMOTE
+```
+
+**方式 B：开发机 rsync 同步 + 目标机重建（适合目标机无外网 git）**
+```bash
+rsync -avz --delete \
+  --exclude '.git' --exclude '__pycache__' --exclude '*.pyc' \
+  --exclude 'pgdata' --exclude '.env' \
+  ./ user@192.168.3.219:/opt/apimonitor/
+
+ssh user@192.168.3.219 << 'REMOTE'
+  cd /opt/apimonitor
+  docker compose build backend
+  docker compose up -d backend
+REMOTE
+```
+
+11.4 健康检查（部署后必做）
+```bash
+ssh user@192.168.3.219 "curl -sf http://localhost:8000/ -o /dev/null && echo 'WEB OK' || echo 'WEB FAIL'"
+ssh user@192.168.3.219 "curl -sf http://localhost:8000/api/monitors && echo 'API OK' || echo 'API FAIL'"
+ssh user@192.168.3.219 "curl -sf http://localhost:8000/api/oss-monitors && echo 'OSS API OK' || echo 'OSS API FAIL'"
+ssh user@192.168.3.219 "docker compose -C /opt/apimonitor ps"
+```
+
+11.5 回滚（紧急时使用）
+```bash
+ssh user@192.168.3.219 << 'REMOTE'
+  cd /opt/apimonitor
+  # 列出本地 tag 找上一个稳定版本
+  git fetch --tags
+  git tag -l 'pre-*' 'v*' --sort=-creatordate | head -5
+  # 假设要回滚到 pre-oss-module
+  git checkout pre-oss-module
+  docker compose build backend
+  docker compose up -d backend
+  # 验证 OK 后回到 main
+  git checkout main
+REMOTE
+```
+
+11.6 排错速查
+| 现象 | 优先排查 |
+|---|---|
+| 502 / 连接被拒 | `docker compose ps` 看 backend 是否 healthy；`docker compose logs backend` |
+| `OSS_ENC_KEY` warning 反复出现 | 目标机 `.env` 没读到；`docker compose config \| grep OSS_ENC_KEY` 验证 env 已注入 |
+| 监控项定时任务没跑 | `docker compose exec backend python -c "from tasks import scheduler; print(scheduler.get_jobs())"` |
+| 端口 8000 占用 | `ssh user@192.168.3.219 "ss -tlnp \| grep 8000"` 看占用进程 |
+| 数据库连不上 | `docker compose logs db` 看 PostgreSQL 是否 healthy；`docker compose exec db pg_isready -U apimon` |
+
+11.7 关键路径速查
+- 项目根：`/opt/apimonitor`
+- 后端容器名：`apimonitor-backend-1`（`docker compose ps` 查实际名）
+- 数据库容器名：`apimonitor-db-1`
+- WebSocket：`ws://192.168.3.219:8000/ws/status`
+- API 基址：`http://192.168.3.219:8000/api`
+- 前台：`http://192.168.3.219:8000/`
+
+> 占位符说明：把上面的 `user` 替换为目标机的实际 SSH 用户名；`<repo-url>` 替换为 git 远程地址。如需在文档中固定下来，可写为变量 `${DEPLOY_USER}` / `${REPO_URL}` 让 Agent 在执行时询问。
 如有不确定之处，按最合理方式实现，优先保证可用性和完整性。

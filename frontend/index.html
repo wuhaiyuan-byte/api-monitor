@@ -541,6 +541,8 @@
                 <button class="tab" :class="{active: activeTab === 'dashboard'}" @click="activeTab = 'dashboard'">Dashboard</button>
                 <button class="tab" :class="{active: activeTab === 'alerts'}" @click="switchToAlerts">Alerts</button>
                 <button class="tab" :class="{active: activeTab === 'config'}" @click="activeTab = 'config'">Config</button>
+                <button class="tab" :class="{active: activeTab === 'oss-dashboard'}" @click="activeTab = 'oss-dashboard'">OSS Dashboard</button>
+                <button class="tab" :class="{active: activeTab === 'oss-config'}" @click="activeTab = 'oss-config'">OSS Config</button>
                 <button class="tab" :class="{active: activeTab === 'settings'}" @click="switchToSettings">Settings</button>
             </div>
 
@@ -640,6 +642,86 @@
                                 <td>
                                     <button class="btn btn-ghost btn-small" style="margin-right: 8px;" @click="openEditDialog(monitor)">Edit</button>
                                     <button class="btn btn-danger btn-small" @click="deleteMonitor(monitor.id)">Delete</button>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- OSS Dashboard Tab -->
+            <div v-if="activeTab === 'oss-dashboard'">
+                <div class="page-header">
+                    <h1 class="page-title">OSS File Monitor</h1>
+                    <button class="btn btn-primary" @click="openOssAddDialog">+ Add OSS Monitor</button>
+                </div>
+                <div v-if="ossMonitors.length === 0" class="empty">
+                    <div class="empty-icon">📦</div>
+                    <div class="empty-text">No OSS monitors configured</div>
+                    <button class="btn btn-primary" @click="openOssAddDialog">Add Your First OSS Monitor</button>
+                </div>
+                <div v-else class="monitor-grid">
+                    <div v-for="m in ossMonitors" :key="m.id" class="monitor-card" :class="getOssStatus(m)" @click="openOssDetail(m)">
+                        <div class="monitor-header">
+                            <span class="monitor-name">{{ m.name }}</span>
+                            <div class="monitor-status" :class="getOssStatus(m)"></div>
+                        </div>
+                        <div class="monitor-url">{{ m.bucket }}<span v-if="m.prefix">/{{ m.prefix }}</span></div>
+                        <div class="monitor-stats">
+                            <div class="stat">
+                                <span class="stat-label">Keyword</span>
+                                <span class="stat-value" style="font-family: 'Berkeley Mono', monospace; font-size: 12px;">{{ m.keyword }}</span>
+                            </div>
+                            <div class="stat">
+                                <span class="stat-label">Expect</span>
+                                <span class="stat-value">{{ m.expected_present ? '应存在' : '不应存在' }}</span>
+                            </div>
+                            <div class="stat">
+                                <span class="stat-label">Status</span>
+                                <span class="stat-value">{{ ossStatusLabel(m) }}</span>
+                            </div>
+                            <div class="stat">
+                                <span class="stat-label">Last Check</span>
+                                <span class="stat-value">{{ formatRelativeTime(m.last_checked_at) }}</span>
+                            </div>
+                        </div>
+                        <div v-if="m.last_matched_key" class="monitor-url" style="margin-top: 8px; font-size: 12px;">匹配: {{ m.last_matched_key }}</div>
+                        <div v-if="m.last_error" class="monitor-url" style="margin-top: 4px; font-size: 12px; color: var(--danger);">错误: {{ m.last_error }}</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- OSS Config Tab -->
+            <div v-if="activeTab === 'oss-config'">
+                <div class="page-header">
+                    <h1 class="page-title">OSS Monitor Configuration</h1>
+                    <button class="btn btn-primary" @click="openOssAddDialog">+ Add OSS Monitor</button>
+                </div>
+                <div class="card">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Bucket / Prefix</th>
+                                <th>Keyword</th>
+                                <th>Expect</th>
+                                <th>Interval</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="m in ossMonitors" :key="m.id">
+                                <td style="font-weight: 590;">{{ m.name }}</td>
+                                <td style="color: var(--text-muted); font-family: 'Berkeley Mono', monospace; font-size: 12px;">{{ m.bucket }}<span v-if="m.prefix">/{{ m.prefix }}</span></td>
+                                <td><span class="tag inactive">{{ m.keyword }}</span></td>
+                                <td><span class="tag" :class="m.expected_present ? 'active' : 'error'">{{ m.expected_present ? '应存在' : '不应存在' }}</span></td>
+                                <td style="color: var(--text-muted);">{{ m.interval_seconds }}s</td>
+                                <td><span class="tag" :class="m.is_active ? 'active' : 'inactive'">{{ m.is_active ? 'Active' : 'Paused' }}</span></td>
+                                <td>
+                                    <button class="btn btn-ghost btn-small" style="margin-right: 8px;" @click="openOssEditDialog(m)">Edit</button>
+                                    <button class="btn btn-ghost btn-small" style="margin-right: 8px;" @click="ossCheckNow(m.id)">Run</button>
+                                    <button class="btn btn-danger btn-small" @click="deleteOssMonitor(m.id)">Delete</button>
                                 </td>
                             </tr>
                         </tbody>
@@ -988,6 +1070,163 @@
                 </div>
             </div>
         </div>
+
+        <!-- OSS Add/Edit Dialog -->
+        <div v-if="ossDialogVisible" class="dialog-overlay" @click.self="ossDialogVisible = false">
+            <div class="dialog">
+                <div class="dialog-header">
+                    <span class="dialog-title">{{ ossIsEditMode ? 'Edit OSS Monitor' : 'Add OSS Monitor' }}</span>
+                    <button class="dialog-close" @click="ossDialogVisible = false">×</button>
+                </div>
+                <div class="dialog-body">
+                    <div class="dialog-left">
+                        <div class="form-tabs">
+                            <div class="form-tab" :class="{active: activeOssFormTab === 'connection'}" @click="activeOssFormTab = 'connection'">连接</div>
+                            <div class="form-tab" :class="{active: activeOssFormTab === 'rule'}" @click="activeOssFormTab = 'rule'">匹配规则</div>
+                            <div class="form-tab" :class="{active: activeOssFormTab === 'schedule'}" @click="activeOssFormTab = 'schedule'">调度</div>
+                        </div>
+
+                        <div v-show="activeOssFormTab === 'connection'">
+                            <div class="form-row">
+                                <label class="form-label">名称 *</label>
+                                <el-input v-model="ossForm.name" placeholder="例：每日导出"></el-input>
+                            </div>
+                            <div class="form-row">
+                                <label class="form-label">Provider</label>
+                                <el-select v-model="ossForm.provider" style="width: 100%;">
+                                    <el-option label="Aliyun OSS" value="aliyun"></el-option>
+                                    <el-option label="S3 兼容" value="s3"></el-option>
+                                </el-select>
+                            </div>
+                            <div class="form-row">
+                                <label class="form-label">Endpoint *</label>
+                                <el-input v-model="ossForm.endpoint" placeholder="https://oss-cn-hangzhou.aliyuncs.com"></el-input>
+                            </div>
+                            <div class="form-row">
+                                <label class="form-label">Bucket *</label>
+                                <el-input v-model="ossForm.bucket" placeholder="my-bucket"></el-input>
+                            </div>
+                            <div class="form-row">
+                                <label class="form-label">Region</label>
+                                <el-input v-model="ossForm.region" placeholder="cn-hangzhou"></el-input>
+                            </div>
+                            <div class="form-row">
+                                <label class="form-label">Access Key ID *</label>
+                                <el-input v-model="ossForm.access_key_id" placeholder="AKID..."></el-input>
+                            </div>
+                            <div class="form-row">
+                                <label class="form-label">Access Key Secret *</label>
+                                <el-input v-model="ossForm.access_key_secret" type="password" show-password :placeholder="ossIsEditMode ? '留空表示不修改' : 'sk-...'"></el-input>
+                            </div>
+                            <div v-if="ossTestResult" class="form-row">
+                                <div :class="ossTestResult.ok ? 'tag active' : 'tag error'">
+                                    {{ ossTestResult.ok ? '✓ ' : '✗ ' }}{{ ossTestResult.message }}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div v-show="activeOssFormTab === 'rule'">
+                            <div class="form-row">
+                                <label class="form-label">Prefix（前缀路径）</label>
+                                <el-input v-model="ossForm.prefix" placeholder="例：exports/daily/ （留空扫描整个 bucket）"></el-input>
+                            </div>
+                            <div class="form-row">
+                                <label class="form-label">关键字 *</label>
+                                <el-input v-model="ossForm.keyword" placeholder="文件 key 中需要包含的子串"></el-input>
+                            </div>
+                            <div class="form-row">
+                                <label class="form-label">匹配方式</label>
+                                <el-select v-model="ossForm.match_mode" style="width: 100%;">
+                                    <el-option label="子串 (contains)" value="contains"></el-option>
+                                    <el-option label="正则 (regex)" value="regex"></el-option>
+                                </el-select>
+                            </div>
+                            <div class="form-row">
+                                <label class="form-label">期望状态</label>
+                                <div style="display: flex; align-items: center; gap: 12px;">
+                                    <el-switch v-model="ossForm.expected_present" active-text="应存在" inactive-text="不应存在"></el-switch>
+                                    <span style="color: var(--text-muted); font-size: 12px;">
+                                        {{ ossForm.expected_present ? '未找到匹配文件 → 告警' : '找到匹配文件 → 告警' }}
+                                    </span>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <label class="form-label">连续失败阈值</label>
+                                <el-input-number v-model="ossForm.failure_threshold" :min="1" :max="100" style="width: 100%;"></el-input-number>
+                                <div style="color: var(--text-muted); font-size: 12px; margin-top: 4px;">达到阈值后触发邮件告警（默认 2）</div>
+                            </div>
+                        </div>
+
+                        <div v-show="activeOssFormTab === 'schedule'">
+                            <div class="form-row">
+                                <label class="form-label">检查间隔 (秒)</label>
+                                <el-input-number v-model="ossForm.interval_seconds" :min="10" :max="86400" style="width: 100%;"></el-input-number>
+                                <div style="color: var(--text-muted); font-size: 12px; margin-top: 4px;">默认 300（5 分钟）；最小 10</div>
+                            </div>
+                            <div class="form-row">
+                                <label class="form-label">启用</label>
+                                <el-switch v-model="ossForm.is_active"></el-switch>
+                            </div>
+                            <div style="background: var(--accent-bg); padding: 12px; border-radius: var(--radius-sm); color: var(--text-secondary); font-size: 12px; margin-top: 12px;">
+                                💡 每次扫描最多检查 200 个对象；超额会标记 "扫描未完整" 并告警
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="dialog-footer">
+                    <div style="display: flex; gap: 8px;">
+                        <button type="button" class="btn btn-ghost" :disabled="ossTesting" @click="ossTestConnection">{{ ossTesting ? '测试中...' : 'Test Connection' }}</button>
+                        <button type="button" class="btn btn-ghost" :disabled="ossSubmitting" @click="submitOssForm">{{ ossIsEditMode ? 'Update' : 'Create' }}</button>
+                    </div>
+                    <button type="button" class="dialog-close" @click="ossDialogVisible = false">×</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- OSS Detail Dialog -->
+        <div v-if="ossDetailDialogVisible" class="dialog-overlay" @click.self="ossDetailDialogVisible = false">
+            <div class="dialog">
+                <div class="dialog-header">
+                    <span class="dialog-title">{{ ossDetailMonitor?.name }} — 最近检查记录</span>
+                    <button class="dialog-close" @click="ossDetailDialogVisible = false">×</button>
+                </div>
+                <div class="dialog-body">
+                    <div v-if="ossDetailMonitor">
+                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 16px;">
+                            <div><strong>Bucket:</strong> {{ ossDetailMonitor.bucket }}</div>
+                            <div><strong>Prefix:</strong> {{ ossDetailMonitor.prefix || '(整个 bucket)' }}</div>
+                            <div><strong>Keyword:</strong> {{ ossDetailMonitor.keyword }}</div>
+                            <div><strong>Match mode:</strong> {{ ossDetailMonitor.match_mode }}</div>
+                            <div><strong>Expect:</strong> {{ ossDetailMonitor.expected_present ? '应存在' : '不应存在' }}</div>
+                            <div><strong>当前连续失败:</strong> {{ ossDetailMonitor.consecutive_failures }}</div>
+                        </div>
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>Status</th>
+                                    <th>Matched Key</th>
+                                    <th>Size</th>
+                                    <th>Scanned</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="row in ossDetailHistory" :key="row.id">
+                                    <td style="font-size: 12px; color: var(--text-muted);">{{ formatDate(row.checked_at) }}</td>
+                                    <td>
+                                        <span class="tag" :class="row.status === 'matched' ? 'active' : (row.status === 'error' ? 'error' : 'inactive')">{{ row.status }}</span>
+                                        <span v-if="row.scan_truncated" class="tag inactive" style="margin-left: 6px;">截断</span>
+                                    </td>
+                                    <td style="font-family: 'Berkeley Mono', monospace; font-size: 12px;">{{ row.matched_key || '-' }}</td>
+                                    <td>{{ row.file_size ? Math.round(row.file_size) : '-' }}</td>
+                                    <td>{{ row.scanned_count ?? '-' }}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script src="https://unpkg.com/vue@3.4.0/dist/vue.global.prod.js"></script>
@@ -1091,6 +1330,35 @@
                 const newEmailError = ref('');
                 const editingGroupIndex = ref(-1);
                 const groupNameDraft = ref('');
+
+                // OSS monitor module state
+                const ossMonitors = ref([]);
+                const ossDialogVisible = ref(false);
+                const ossDetailDialogVisible = ref(false);
+                const ossDetailMonitor = ref(null);
+                const ossDetailHistory = ref([]);
+                const ossIsEditMode = ref(false);
+                const ossSubmitting = ref(false);
+                const ossTesting = ref(false);
+                const ossEditingId = ref(null);
+                const ossTestResult = ref(null);
+                const activeOssFormTab = ref('connection');
+                const ossForm = reactive({
+                    name: '',
+                    provider: 'aliyun',
+                    endpoint: 'https://oss-cn-hangzhou.aliyuncs.com',
+                    bucket: '',
+                    region: '',
+                    prefix: '',
+                    keyword: '',
+                    match_mode: 'contains',
+                    expected_present: true,
+                    failure_threshold: 2,
+                    interval_seconds: 300,
+                    is_active: true,
+                    access_key_id: '',
+                    access_key_secret: ''
+                });
 
                 const filteredAlerts = computed(() => {
                     if (alertFilter.value === 'all') return alerts.value;
@@ -1327,6 +1595,176 @@ function toBeijingDate(dateStr) {
                 function switchToSettings() {
                     activeTab.value = 'settings';
                     fetchEmailSettings();
+                }
+
+                // ================================================================
+                // OSS monitor module
+                // ================================================================
+                async function fetchOssMonitors() {
+                    try {
+                        const r = await axios.get(`${API_BASE}/api/oss-monitors`);
+                        ossMonitors.value = r.data;
+                    } catch (e) {
+                        console.error('Failed to fetch OSS monitors:', e);
+                    }
+                }
+
+                function getOssStatus(m) {
+                    if (!m) return 'normal';
+                    if (m.last_status === 'error') return 'anomaly';
+                    if (m.last_status === 'not_matched') return 'anomaly';
+                    if (m.last_status === 'matched') return 'normal';
+                    return 'normal';
+                }
+
+                function ossStatusLabel(m) {
+                    if (!m) return '-';
+                    if (m.last_status === 'matched') return m.expected_present ? '存在 ✓' : '未出现 ✓';
+                    if (m.last_status === 'not_matched') return m.expected_present ? '缺失 ✗' : '异常出现 ✗';
+                    if (m.last_status === 'error') return '错误';
+                    return '-';
+                }
+
+                function openOssAddDialog() {
+                    ossIsEditMode.value = false;
+                    ossEditingId.value = null;
+                    activeOssFormTab.value = 'connection';
+                    ossTestResult.value = null;
+                    Object.assign(ossForm, {
+                        name: '',
+                        provider: 'aliyun',
+                        endpoint: 'https://oss-cn-hangzhou.aliyuncs.com',
+                        bucket: '',
+                        region: '',
+                        prefix: '',
+                        keyword: '',
+                        match_mode: 'contains',
+                        expected_present: true,
+                        failure_threshold: 2,
+                        interval_seconds: 300,
+                        is_active: true,
+                        access_key_id: '',
+                        access_key_secret: ''
+                    });
+                    ossDialogVisible.value = true;
+                }
+
+                function openOssEditDialog(m) {
+                    ossIsEditMode.value = true;
+                    ossEditingId.value = m.id;
+                    activeOssFormTab.value = 'connection';
+                    ossTestResult.value = null;
+                    Object.assign(ossForm, {
+                        name: m.name || '',
+                        provider: m.provider || 'aliyun',
+                        endpoint: m.endpoint || '',
+                        bucket: m.bucket || '',
+                        region: m.region || '',
+                        prefix: m.prefix || '',
+                        keyword: m.keyword || '',
+                        match_mode: m.match_mode || 'contains',
+                        expected_present: m.expected_present !== false,
+                        failure_threshold: m.failure_threshold || 2,
+                        interval_seconds: m.interval_seconds || 300,
+                        is_active: m.is_active !== false,
+                        access_key_id: m.access_key_id || '',
+                        access_key_secret: ''  // never re-populate; user re-enters to change
+                    });
+                    ossDialogVisible.value = true;
+                }
+
+                async function ossTestConnection() {
+                    if (ossTesting.value) return;
+                    if (!ossForm.endpoint || !ossForm.bucket || !ossForm.access_key_id || !ossForm.access_key_secret) {
+                        ElMessage.error('请先填写 endpoint / bucket / access_key_id / access_key_secret');
+                        return;
+                    }
+                    ossTesting.value = true;
+                    ossTestResult.value = null;
+                    try {
+                        const r = await axios.post(`${API_BASE}/api/oss-monitors/test-connection`, {
+                            provider: ossForm.provider,
+                            endpoint: ossForm.endpoint,
+                            bucket: ossForm.bucket,
+                            region: ossForm.region || null,
+                            access_key_id: ossForm.access_key_id,
+                            access_key_secret: ossForm.access_key_secret,
+                            prefix: ossForm.prefix || ''
+                        });
+                        ossTestResult.value = { ok: true, message: r.data.message || '连接成功' };
+                        ElMessage.success('连接成功');
+                    } catch (e) {
+                        const detail = e.response?.data?.detail || e.message;
+                        ossTestResult.value = { ok: false, message: detail };
+                        ElMessage.error('连接失败: ' + detail);
+                    } finally {
+                        ossTesting.value = false;
+                    }
+                }
+
+                async function submitOssForm() {
+                    if (!ossForm.name || !ossForm.bucket || !ossForm.endpoint || !ossForm.keyword || !ossForm.access_key_id) {
+                        ElMessage.error('请填写所有必填项（标 * 字段）');
+                        return;
+                    }
+                    if (!ossIsEditMode.value && !ossForm.access_key_secret) {
+                        ElMessage.error('新建监控项必须填写 access_key_secret');
+                        return;
+                    }
+                    ossSubmitting.value = true;
+                    try {
+                        const payload = { ...ossForm };
+                        // Don't send access_key_secret on update unless user re-typed it
+                        if (ossIsEditMode.value && !ossForm.access_key_secret) {
+                            delete payload.access_key_secret;
+                        }
+                        if (ossIsEditMode.value) {
+                            await axios.put(`${API_BASE}/api/oss-monitors/${ossEditingId.value}`, payload);
+                            ElMessage.success('Updated');
+                        } else {
+                            await axios.post(`${API_BASE}/api/oss-monitors`, payload);
+                            ElMessage.success('Created');
+                        }
+                        ossDialogVisible.value = false;
+                        await fetchOssMonitors();
+                    } catch (e) {
+                        ElMessage.error(e.response?.data?.detail || e.message);
+                    } finally {
+                        ossSubmitting.value = false;
+                    }
+                }
+
+                async function deleteOssMonitor(id) {
+                    if (!confirm('Delete this OSS monitor?')) return;
+                    try {
+                        await axios.delete(`${API_BASE}/api/oss-monitors/${id}`);
+                        ElMessage.success('Deleted');
+                        await fetchOssMonitors();
+                    } catch (e) {
+                        ElMessage.error('Delete failed: ' + (e.response?.data?.detail || e.message));
+                    }
+                }
+
+                async function ossCheckNow(id) {
+                    try {
+                        await axios.post(`${API_BASE}/api/oss-monitors/${id}/check-now`);
+                        ElMessage.success('Check triggered');
+                        // Refresh shortly after to pick up the new last_status.
+                        setTimeout(fetchOssMonitors, 1500);
+                    } catch (e) {
+                        ElMessage.error('Check failed: ' + (e.response?.data?.detail || e.message));
+                    }
+                }
+
+                async function openOssDetail(m) {
+                    ossDetailMonitor.value = m;
+                    ossDetailDialogVisible.value = true;
+                    try {
+                        const r = await axios.get(`${API_BASE}/api/oss-monitors/${m.id}/checks?minutes=1440`);
+                        ossDetailHistory.value = r.data;
+                    } catch (e) {
+                        console.error('Failed to load OSS history:', e);
+                    }
                 }
 
                 function openMonitorDetail(monitor) {
@@ -1633,6 +2071,18 @@ function toBeijingDate(dateStr) {
                                     }
                                 } else if (data.type === 'new_alert') {
                                     fetchAlerts();
+                                } else if (data.type === 'oss_status_update') {
+                                    const oss = ossMonitors.value.find(m => m.id === data.oss_monitor_id);
+                                    if (oss) {
+                                        oss.last_status = data.status;
+                                        oss.last_checked_at = data.last_check;
+                                        oss.last_matched_key = data.matched_key;
+                                        oss.last_error = data.error || null;
+                                        oss.consecutive_failures = data.consecutive_failures;
+                                    }
+                                } else if (data.type === 'oss_new_alert') {
+                                    // Reload to pick up the new consecutive_failures / last_error.
+                                    fetchOssMonitors();
                                 }
                             } catch (e) {}
                         };
@@ -1652,6 +2102,7 @@ function toBeijingDate(dateStr) {
                 onMounted(() => {
                     fetchMonitors();
                     fetchAlerts();
+                    fetchOssMonitors();
                     connectWebSocket();
                 });
 
@@ -1662,6 +2113,12 @@ function toBeijingDate(dateStr) {
                     activeFormTab, monitorForm, responsePanel, emailSettings,
                     testing, addingEmailToGroup, newEmailDraft, newEmailError,
                     editingGroupIndex, groupNameDraft,
+                    // OSS module
+                    ossMonitors, ossDialogVisible, ossDetailDialogVisible, ossDetailMonitor, ossDetailHistory,
+                    ossIsEditMode, ossSubmitting, ossTesting, ossTestResult, activeOssFormTab, ossForm,
+                    getOssStatus, ossStatusLabel,
+                    fetchOssMonitors, openOssAddDialog, openOssEditDialog, submitOssForm, deleteOssMonitor,
+                    ossCheckNow, openOssDetail, ossTestConnection,
                     getMonitorStatus, getResponseTimeClass, formatRelativeTime, formatDate,
                     switchToAlerts, switchToSettings, fetchEmailSettings, saveEmailSettings, testEmailSettings,
                     startAddEmail, cancelAddEmail, confirmAddEmail, removeEmailFromGroup,

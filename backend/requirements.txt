@@ -9,3 +9,5 @@ python-dotenv
 pydantic
 pytest
 pytest-asyncio
+oss2
+cryptography

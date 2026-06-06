@@ -29,6 +29,8 @@ def _is_alert_type_enabled(settings: dict, alert_type_value: str) -> bool:
         "latency": "email_alert_on_latency",
         "body_mismatch": "email_alert_on_body",
         "timeout": "email_alert_on_timeout",
+        "oss_missing": "email_alert_on_status",
+        "oss_unexpected": "email_alert_on_status",
     }
     key = type_to_key.get(alert_type_value)
     if not key:
@@ -158,6 +160,8 @@ async def send_alert_email(monitor_name: str, alert_type: str, description: str,
                 "latency": "延迟异常",
                 "body_mismatch": "内容异常",
                 "timeout": "请求超时",
+                "oss_missing": "OSS 文件缺失",
+                "oss_unexpected": "OSS 文件异常出现",
             }
             subject = f"[API Monitor] 告警通知 - {monitor_name}"
             body = f"""API Monitor 告警通知

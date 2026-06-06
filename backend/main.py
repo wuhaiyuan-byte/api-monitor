@@ -6,10 +6,12 @@ from fastapi.responses import FileResponse
 
 from database import init_db
 from tasks import scheduler, load_active_monitors
+from oss_tasks import load_active_oss_monitors
 from ws_manager import manager
 from api.monitors import router as monitors_router
 from api.alerts import router as alerts_router
 from api.settings import router as settings_router
+from api.oss import router as oss_router
 
 
 @asynccontextmanager
@@ -17,6 +19,7 @@ async def lifespan(app: FastAPI):
     await init_db()
     scheduler.start()
     await load_active_monitors()
+    await load_active_oss_monitors()
     yield
     scheduler.shutdown()
 
@@ -34,6 +37,7 @@ app.add_middleware(
 app.include_router(monitors_router, prefix="/api")
 app.include_router(alerts_router, prefix="/api")
 app.include_router(settings_router, prefix="/api")
+app.include_router(oss_router, prefix="/api")
 
 
 @app.get("/")
