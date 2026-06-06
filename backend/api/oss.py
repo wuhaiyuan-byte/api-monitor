@@ -26,7 +26,37 @@ router = APIRouter()
 
 
 def _to_response(m: OssMonitor) -> OssMonitorResponse:
-    plain = decrypt_secret(m.access_key_secret_enc) or ""
+    # If the Fernet key has rotated (e.g. ephemeral key on a previous run),
+    # decryption fails with InvalidToken. Return a locked marker instead of
+    # raising 500 on the list endpoint.
+    try:
+        plain = decrypt_secret(m.access_key_secret_enc) or ""
+    except Exception:
+        return OssMonitorResponse(
+            id=m.id,
+            name=m.name,
+            provider=m.provider,
+            endpoint=m.endpoint,
+            bucket=m.bucket,
+            region=m.region,
+            prefix=m.prefix or "",
+            keyword=m.keyword,
+            match_mode=m.match_mode,
+            expected_present=m.expected_present,
+            failure_threshold=m.failure_threshold,
+            interval_seconds=m.interval_seconds,
+            is_active=m.is_active,
+            access_key_id=m.access_key_id,
+            access_key_secret_masked="<unreadable — set OSS_ENC_KEY or re-save>",
+            last_status=m.last_status,
+            last_checked_at=m.last_checked_at,
+            last_matched_key=m.last_matched_key,
+            last_matched_size=m.last_matched_size,
+            last_matched_modified=m.last_matched_modified,
+            last_error=m.last_error,
+            consecutive_failures=m.consecutive_failures or 0,
+            created_at=m.created_at,
+        )
     return OssMonitorResponse(
         id=m.id,
         name=m.name,
