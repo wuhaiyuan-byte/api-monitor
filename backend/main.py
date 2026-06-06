@@ -44,7 +44,13 @@ app.include_router(oss_router, prefix="/api")
 async def root():
     frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend", "index.html")
     if os.path.exists(frontend_path):
-        return FileResponse(frontend_path)
+        # No-cache so updates to index.html are picked up on next page load
+        # without requiring a hard refresh. CDN-cached libraries inside the
+        # HTML still get their own browser-level caching.
+        return FileResponse(
+            frontend_path,
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+        )
     return {"message": "API Monitor is running. Place frontend/index.html to serve the UI."}
 
 
