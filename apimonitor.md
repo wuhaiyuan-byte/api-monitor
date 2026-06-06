@@ -769,5 +769,16 @@ REMOTE
 - API 基址：`http://192.168.3.219:8000/api`
 - 前台：`http://192.168.3.219:8000/`
 
+11.8 容器挂载与热更新边界
+`docker-compose.yml` 已挂载 3 个 volume：
+- `./backend → /app/backend`     热生效：编辑任意 `.py` 后 `docker compose restart backend` 即可
+- `./frontend → /app/frontend`   热生效：编辑 `index.html` 后**无需重启**，F5 刷新浏览器即生效
+- `./data → /app/data`           持久化：OSS Fernet key 等运行时生成的数据，跨容器重启保留
+
+**需要重建镜像的场景**：
+- 修改 `backend/requirements.txt`（新依赖）
+- 修改 `backend/Dockerfile`（如换 pip 源、Python 版本）
+- 命令：`ssh user@192.168.3.219 "cd ~/apimonitor && docker compose build --no-cache backend && docker compose up -d backend"`
+
 > 占位符说明：把上面的 `user` 替换为目标机的实际 SSH 用户名；`<repo-url>` 替换为 git 远程地址。如需在文档中固定下来，可写为变量 `${DEPLOY_USER}` / `${REPO_URL}` 让 Agent 在执行时询问。
 如有不确定之处，按最合理方式实现，优先保证可用性和完整性。

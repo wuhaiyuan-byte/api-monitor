@@ -259,4 +259,4 @@ git push origin main
 - **cooldown 是内存变量**：重启容器会清空，会重新发邮件（`tasks.py:_last_alert_sent`）
 - **PostgreSQL ENUM 类型比较问题**：`anomaly_type` 列在模型里用 `String(32)` 而非 `SQLEnum(AlertType)`，避免 `operator does not exist` 错误
 - **Dockerfile 用阿里云 pip 源**：因为 pypi.org 在 219 上访问会超时
-- **volumes 挂载**：`./backend:/app/backend` 覆盖镜像中的 backend，但 frontend 不会（如果改了 frontend 必须重建镜像）
+- **volumes 挂载**：`./backend:/app/backend` **和 `./frontend:/app/frontend`** 都覆盖镜像中的代码，编辑后容器立即可见。**改 `requirements.txt` 或 `Dockerfile` 仍需 `docker compose build --no-cache backend`**。
