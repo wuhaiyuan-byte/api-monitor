@@ -102,6 +102,7 @@ async def create_oss_monitor(
         keyword=body.keyword,
         match_mode=body.match_mode,
         expected_present=body.expected_present,
+        max_age_hours=body.max_age_hours,
         failure_threshold=body.failure_threshold,
         interval_seconds=body.interval_seconds,
         is_active=body.is_active,
