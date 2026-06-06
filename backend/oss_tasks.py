@@ -191,9 +191,32 @@ async def check_oss_monitor(oss_monitor_id: int):
             return
 
         bucket = _build_bucket(monitor)
+        # Debug log: record scan inputs so we can correlate with downstream
+        # freshness decisions when something looks wrong. Logged at INFO so
+        # operators can `docker compose logs backend | grep OSS-DEBUG` to
+        # trace a single monitor run.
+        logger.info(
+            f"[OSS-DEBUG] monitor={monitor.id} bucket={monitor.bucket} "
+            f"prefix={monitor.prefix!r} keyword={monitor.keyword!r} "
+            f"match_mode={monitor.match_mode} max_age_hours={monitor.max_age_hours} "
+            f"expected_present={monitor.expected_present} "
+            f"now_utc={datetime.utcnow().isoformat()}"
+        )
         matched, first, scanned, truncated, err, all_matches = await _scan(
             bucket, monitor.prefix or "", monitor.keyword, monitor.match_mode
         )
+        # Per-file debug: log every matched key with the raw and normalized
+        # last_modified so the operator can see exactly what oss2 returned
+        # and how the freshness comparison was evaluated.
+        for k, fm in all_matches:
+            logger.info(
+                f"[OSS-DEBUG]   matched: {k}  "
+                f"last_modified={fm.isoformat() if fm else 'None'}"
+            )
+        if not all_matches:
+            logger.info(f"[OSS-DEBUG]   (no matches found in {scanned} scanned objects)")
+        if truncated:
+            logger.info(f"[OSS-DEBUG]   scan truncated at {SCAN_LIMIT} objects")
 
         # Determine if any/all matched files are "stale" (older than max_age_hours).
         # If any match is fresh, the check passes. If all matches are stale (or
@@ -201,6 +224,7 @@ async def check_oss_monitor(oss_monitor_id: int):
         is_stale = False
         fresh_matches: list = []
         stale_matches: list = []
+        cutoff = None
         if matched and monitor.max_age_hours:
             cutoff = datetime.utcnow() - timedelta(hours=monitor.max_age_hours)
             for key, fm in all_matches:
@@ -211,6 +235,12 @@ async def check_oss_monitor(oss_monitor_id: int):
             # A match exists in OSS but all of them are stale.
             if not fresh_matches and stale_matches:
                 is_stale = True
+        if matched and monitor.max_age_hours:
+            logger.info(
+                f"[OSS-DEBUG]   cutoff_utc={cutoff.isoformat() if cutoff else 'None'} "
+                f"fresh={len(fresh_matches)} stale={len(stale_matches)} "
+                f"is_stale={is_stale}"
+            )
 
         if err:
             status = "error"
