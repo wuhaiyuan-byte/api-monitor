@@ -546,7 +546,11 @@ OSS_ENC_KEY=
 模块级常量 `SCAN_LIMIT = 200`：每次扫描最多遍历 200 个对象，超额即 `scan_truncated=True` 并把警告写进 `error_message`。
 
 9.4 新增加密模块（backend/oss_crypto.py）
-- `get_fernet()`：从 `OSS_ENC_KEY` 读 key；未设置时自动生成 ephemeral key 并 log warning（不阻塞启动）。
+- `get_fernet()`：Fernet 实例在进程内缓存一次。Key 解析优先级：
+  1. `OSS_ENC_KEY` 环境变量（运维显式提供，优先级最高）
+  2. `OSS_ENC_KEY_FILE` 指向的文件内容（默认 `/app/data/oss_fernet.key`）
+  3. 自动生成 + 落盘到上述路径，权限 0600，log info（不阻塞启动）
+- 零配置：只要 docker-compose.yml 把 `./data` 挂到 `/app/data`，无需任何 env 即可让 AK/SK 在容器重启后仍然可解密。
 - `encrypt_secret(plain) / decrypt_secret(cipher)`：Fernet 加解密。
 - `mask_secret(plain)`：返回 `***last4` 用于 API 响应脱敏。
 

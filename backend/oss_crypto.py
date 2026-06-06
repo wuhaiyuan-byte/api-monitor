@@ -2,39 +2,68 @@
 
 Each OssMonitor row carries its own AK/SK pair (no global default), and
 the secret is stored as Fernet ciphertext in oss_monitors.access_key_secret_enc.
-The encryption key lives in env var OSS_ENC_KEY; on first start without
-the env var a fresh key is generated and a warning is logged telling the
-operator to persist it to .env. With the ephemeral key, secrets can be
-decrypted in-process but won't survive a restart — this is intentional
-fail-loud behavior.
+
+Key resolution priority (zero-config friendly):
+  1. OSS_ENC_KEY env var          (operator-supplied, highest priority)
+  2. File at OSS_ENC_KEY_FILE      (default /app/data/oss_fernet.key)
+  3. Auto-generate + persist       (creates the file with mode 0600, logs an info line)
+
+The Fernet instance is cached at module level so the key file is only
+read once per process.
 """
 import os
 import logging
-from cryptography.fernet import Fernet
-
+import pathlib
+from cryptography.fernet import Fernet, InvalidToken
 
 _KEY_ENV = "OSS_ENC_KEY"
-_warned = False
-_ephemeral_key: bytes | None = None
+_KEY_FILE_ENV = "OSS_ENC_KEY_FILE"
+_DEFAULT_KEY_FILE = "/app/data/oss_fernet.key"
+
+_cached_fernet: Fernet | None = None
+
+
+def _resolve_key() -> bytes:
+    """Resolve the Fernet key bytes."""
+    env_key = os.getenv(_KEY_ENV)
+    if env_key:
+        return env_key.encode() if isinstance(env_key, str) else env_key
+
+    key_file = os.getenv(_KEY_FILE_ENV, _DEFAULT_KEY_FILE)
+    p = pathlib.Path(key_file)
+
+    if p.exists():
+        return p.read_bytes().strip()
+
+    # Auto-generate and persist. Best-effort chmod; on some volume mounts
+    # (Windows, certain FUSE) chmod may not be supported and is non-fatal.
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        key = Fernet.generate_key()
+        p.write_bytes(key)
+        try:
+            os.chmod(key_file, 0o600)
+        except OSError:
+            pass
+        logging.info(
+            f"[oss_crypto] Generated and persisted Fernet key to {key_file}. "
+            f"This key will survive container restarts. "
+            f"Set { _KEY_ENV } env var to override."
+        )
+        return key
+    except OSError as e:
+        raise RuntimeError(
+            f"[oss_crypto] { _KEY_ENV } not set, and cannot write key file "
+            f"{key_file}: {e}. Either set { _KEY_ENV } env var, or mount a "
+            f"writable volume at {p.parent} (or change { _KEY_FILE_ENV })."
+        ) from e
 
 
 def get_fernet() -> Fernet:
-    global _warned, _ephemeral_key
-    key = os.getenv(_KEY_ENV)
-    if not key:
-        if _ephemeral_key is None:
-            _ephemeral_key = Fernet.generate_key()
-            if not _warned:
-                logging.warning(
-                    f"[oss_crypto] {_KEY_ENV} not set, generated an ephemeral key. "
-                    f"Persisted OSS monitor secrets will be unreadable on restart. "
-                    f"Set {_KEY_ENV}={_ephemeral_key.decode()} in your .env to make it permanent."
-                )
-                _warned = True
-        return Fernet(_ephemeral_key)
-    if isinstance(key, str):
-        key = key.encode()
-    return Fernet(key)
+    global _cached_fernet
+    if _cached_fernet is None:
+        _cached_fernet = Fernet(_resolve_key())
+    return _cached_fernet
 
 
 def encrypt_secret(plain: str) -> str:

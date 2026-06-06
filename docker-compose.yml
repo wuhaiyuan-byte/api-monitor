@@ -27,6 +27,7 @@ services:
       - "8000:8000"
     volumes:
       - ./backend:/app/backend
+      - ./data:/app/data   # persistent runtime data (OSS Fernet key, etc.)
 
 volumes:
   pgdata:
