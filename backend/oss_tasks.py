@@ -9,7 +9,7 @@ separately without colliding with existing 'status_update' / 'new_alert'.
 """
 import re
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, Tuple
 
 import oss2
@@ -119,8 +119,19 @@ def _alert_type_for(monitor: OssMonitor) -> str:
     return "oss_missing" if monitor.expected_present else "oss_unexpected"
 
 
-def _alert_description(monitor: OssMonitor, status: str) -> str:
+def _alert_description(monitor: OssMonitor, status: str, stale: bool = False) -> str:
     if status == "not_matched":
+        if stale:
+            # File exists but its last_modified is older than max_age_hours.
+            last_mod = monitor.last_matched_modified
+            last_mod_str = (
+                last_mod.strftime("%Y-%m-%d %H:%M:%S") if last_mod else "unknown"
+            )
+            return (
+                f"OSS 文件陈旧: bucket={monitor.bucket} prefix={monitor.prefix} "
+                f"keyword='{monitor.keyword}' 文件 last_modified={last_mod_str} "
+                f"超过 {monitor.max_age_hours} 小时新鲜度窗口"
+            )
         if monitor.expected_present:
             return (
                 f"OSS 文件缺失: bucket={monitor.bucket} prefix={monitor.prefix} "
@@ -153,6 +164,17 @@ async def check_oss_monitor(oss_monitor_id: int):
             bucket, monitor.prefix or "", monitor.keyword, monitor.match_mode
         )
 
+        # Determine if the matched file is "stale" (older than max_age_hours).
+        # Semantics: stale files are treated as "not present" for the purpose
+        # of this check, regardless of expected_present direction.
+        is_stale = False
+        if matched and first and monitor.max_age_hours:
+            cutoff = datetime.utcnow() - timedelta(hours=monitor.max_age_hours)
+            fm = first.last_modified
+            # oss2 returns naive datetime in UTC; compare in UTC.
+            if fm is not None and fm < cutoff:
+                is_stale = True
+
         if err:
             status = "error"
             matched_key = None
@@ -160,23 +182,34 @@ async def check_oss_monitor(oss_monitor_id: int):
             file_modified_dt = None
             error_msg = err
         elif monitor.expected_present:
-            status = "matched" if matched else "not_matched"
-            matched_key = first.key if matched else None
-            file_size = first.size if matched else None
-            file_modified_dt = first.last_modified if matched else None
+            effective = matched and not is_stale
+            status = "matched" if effective else "not_matched"
+            matched_key = first.key if effective else None
+            file_size = first.size if effective else None
+            file_modified_dt = first.last_modified if effective else None
             error_msg = None
         else:
-            # expected_present = False
-            status = "not_matched" if matched else "matched"
-            matched_key = first.key if matched else None
-            file_size = first.size if matched else None
-            file_modified_dt = first.last_modified if matched else None
+            # expected_present = False: alert only if a FRESH file exists.
+            # A stale file does not count as "unexpectedly present".
+            fresh_match = matched and not is_stale
+            status = "not_matched" if fresh_match else "matched"
+            matched_key = first.key if fresh_match else None
+            file_size = first.size if fresh_match else None
+            file_modified_dt = first.last_modified if fresh_match else None
             error_msg = None
 
         if truncated:
             error_msg = (
                 (error_msg + "; " if error_msg else "")
                 + f"扫描超过 {SCAN_LIMIT} 条提前终止，结果可能不完整"
+            )
+
+        # If stale was the cause, surface that into error_msg so the dashboard
+        # shows the freshness reason even before any alert is fired.
+        if is_stale and status == "not_matched" and monitor.expected_present:
+            error_msg = (
+                (error_msg + "; " if error_msg else "")
+                + f"匹配项已陈旧 (max_age_hours={monitor.max_age_hours})"
             )
 
         # Persist history (kept forever per spec).
@@ -214,7 +247,7 @@ async def check_oss_monitor(oss_monitor_id: int):
             threshold = monitor.failure_threshold or 2
             is_fired = monitor.consecutive_failures >= threshold
             alert_type = _alert_type_for(monitor)
-            base_desc = _alert_description(monitor, status)
+            base_desc = _alert_description(monitor, status, stale=is_stale)
             if is_fired:
                 desc = base_desc
             else:

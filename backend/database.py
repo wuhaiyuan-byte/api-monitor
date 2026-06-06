@@ -56,6 +56,9 @@ async def _migrate():
                 await sqlite_add_col("alerts", "is_fired", "BOOLEAN", "1")
                 await sqlite_add_col("alerts", "consecutive_failures", "INTEGER", "1")
                 await sqlite_add_col("alerts", "threshold", "INTEGER", "1")
+
+                # OSS module columns
+                await sqlite_add_col("oss_monitors", "max_age_hours", "INTEGER", None)
             else:
                 # PostgreSQL / others via INFORMATION_SCHEMA
                 async def pg_has_col(table: str, col: str) -> bool:
@@ -85,6 +88,9 @@ async def _migrate():
                 await pg_add_col("alerts", "is_fired", "BOOLEAN", "TRUE")
                 await pg_add_col("alerts", "consecutive_failures", "INTEGER", "1")
                 await pg_add_col("alerts", "threshold", "INTEGER", "1")
+
+                # OSS module columns
+                await pg_add_col("oss_monitors", "max_age_hours", "INTEGER", None)
     except Exception as e:
         # Never let migration failure block the service.
         logging.warning(f"DB migration step failed (non-fatal): {e}")

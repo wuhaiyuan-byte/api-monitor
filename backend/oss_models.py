@@ -30,10 +30,15 @@ class OssMonitor(Base):
     access_key_secret_enc = Column(Text, nullable=False)
 
     # Matching rule
-    prefix = Column(String, nullable=True, default="")
+    # Path under the bucket that this monitor is allowed to access. Required
+    # (non-empty) when the operator does not have whole-bucket List permission.
+    prefix = Column(String, nullable=False, default="")
     keyword = Column(String, nullable=False)
     match_mode = Column(String, nullable=False, default="contains")  # 'contains' | 'regex'
     expected_present = Column(Boolean, nullable=False, default=True)
+    # Optional freshness check: if set, the matched file's last_modified must
+    # be >= now() - max_age_hours. NULL = no freshness check.
+    max_age_hours = Column(Integer, nullable=True)
     failure_threshold = Column(Integer, nullable=False, default=2)
 
     # Scheduling

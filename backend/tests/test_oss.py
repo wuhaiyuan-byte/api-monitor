@@ -369,6 +369,96 @@ async def test_check_monitor_recovery(session):
 
 
 @pytest.mark.asyncio
+async def test_check_monitor_max_age_hours_freshness_fail(session):
+    """When max_age_hours is set, a matched file whose last_modified is older
+    than the window should be treated as not_matched with stale= True."""
+    import oss_tasks as ot
+    import tasks as t_mod
+    t_mod.send_alert_email = MagicMock(return_value=asyncio.sleep(0, result=None))
+    ot.scheduler = MagicMock()
+
+    m = OssMonitor(
+        name="M", provider="aliyun",
+        endpoint="https://oss-cn-shanghai.aliyuncs.com",
+        bucket="b", keyword="report",
+        access_key_id="ak",
+        access_key_secret_enc=encrypt_secret("sk"),
+        is_active=True, interval_seconds=60,
+        expected_present=True, failure_threshold=1,
+        prefix="exports/",
+        max_age_hours=24,
+    )
+    session.add(m)
+    await session.commit()
+    await session.refresh(m)
+
+    # File is 3 days old, freshness window is 24h → must be stale
+    from datetime import timedelta
+    old_dt = datetime.utcnow() - timedelta(days=3)
+    objs = [_make_obj("exports/report_2024.csv", last_modified=old_dt)]
+    with patch.object(ot.oss2, "Bucket", return_value=_patched_bucket(objs)):
+        await ot.check_oss_monitor(m.id)
+
+    await session.refresh(m)
+    assert m.last_status == "not_matched"
+    assert "陈旧" in (m.last_error or "")
+    types_called = [c.args[1] for c in t_mod.send_alert_email.call_args_list]
+    assert "oss_missing" in types_called
+
+
+@pytest.mark.asyncio
+async def test_check_monitor_max_age_hours_within_window_passes(session):
+    """When max_age_hours is set and the file IS fresh, status should be matched."""
+    import oss_tasks as ot
+    import tasks as t_mod
+    t_mod.send_alert_email = MagicMock(return_value=asyncio.sleep(0, result=None))
+    ot.scheduler = MagicMock()
+
+    m = OssMonitor(
+        name="M", provider="aliyun",
+        endpoint="https://oss-cn-shanghai.aliyuncs.com",
+        bucket="b", keyword="report",
+        access_key_id="ak",
+        access_key_secret_enc=encrypt_secret("sk"),
+        is_active=True, interval_seconds=60,
+        expected_present=True, failure_threshold=2,
+        prefix="exports/",
+        max_age_hours=24,
+    )
+    session.add(m)
+    await session.commit()
+    await session.refresh(m)
+
+    from datetime import timedelta
+    fresh_dt = datetime.utcnow() - timedelta(hours=1)
+    objs = [_make_obj("exports/report_today.csv", last_modified=fresh_dt)]
+    with patch.object(ot.oss2, "Bucket", return_value=_patched_bucket(objs)):
+        await ot.check_oss_monitor(m.id)
+
+    await session.refresh(m)
+    assert m.last_status == "matched"
+    assert m.consecutive_failures == 0
+
+
+@pytest.mark.asyncio
+async def test_create_oss_monitor_requires_prefix(client: AsyncClient):
+    """Empty prefix must be rejected by Pydantic validation."""
+    r = await client.post("/api/oss-monitors", json={
+        "name": "no-prefix",
+        "endpoint": "https://oss-cn-shanghai.aliyuncs.com",
+        "bucket": "b",
+        "keyword": "k",
+        "prefix": "",
+        "access_key_id": "ak",
+        "access_key_secret": "sk-1234567890",
+    })
+    assert r.status_code == 422
+    # The error mentions prefix in the validation message
+    body = r.text
+    assert "prefix" in body.lower()
+
+
+@pytest.mark.asyncio
 async def test_check_monitor_expected_absent(session):
     import oss_tasks as ot
     import tasks as t_mod

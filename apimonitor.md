@@ -540,10 +540,18 @@ OSS_ENC_KEY=
 ```
 
 9.3 新增数据模型（backend/oss_models.py，独立 declarative_base）
-- `OssMonitor`：`id, name, provider(aliyun/s3), endpoint, bucket, region, prefix, keyword, match_mode(contains/regex, 默认 contains), expected_present(bool, 默认 True), failure_threshold(int, 默认 2), access_key_id, access_key_secret_enc(Fernet 密文), interval_seconds(默认 300), is_active(bool, 默认 True), last_status, last_checked_at, last_matched_key, last_matched_size, last_matched_modified, last_error, consecutive_failures(int, 默认 0), created_at`，关系 `check_results`（级联删除）。
+- `OssMonitor`：`id, name, provider(aliyun/s3), endpoint, bucket, region, prefix(必填，自动加尾 `/` 并 strip 头尾 `/`；非空), keyword, match_mode(contains/regex, 默认 contains), expected_present(bool, 默认 True), max_age_hours(int, 可空, 1-8760, NULL=不检查时效), failure_threshold(int, 默认 2), access_key_id, access_key_secret_enc(Fernet 密文), interval_seconds(默认 300), is_active(bool, 默认 True), last_status, last_checked_at, last_matched_key, last_matched_size, last_matched_modified, last_error, consecutive_failures(int, 默认 0), created_at`，关系 `check_results`（级联删除）。
 - `OssCheckResult`：`id, oss_monitor_id(FK), status(matched/not_matched/error), matched_key, file_size, file_last_modified, scanned_count, scan_truncated(bool), error_message, checked_at`。
 
 模块级常量 `SCAN_LIMIT = 200`：每次扫描最多遍历 200 个对象，超额即 `scan_truncated=True` 并把警告写进 `error_message`。
+
+**时效检查（max_age_hours）语义**：
+- 留空 → 不检查时效
+- 设置后：匹配项的 `last_modified` 必须 ≥ `now() - max_age_hours` 小时
+- 陈旧文件被当作"不存在"处理：
+  - `expected_present=true` → 触发 `oss_missing` 告警，描述含"陈旧"和 last_modified 时间
+  - `expected_present=false` → 静默通过（陈旧文件不算"异常出现"）
+- 典型用法：每日导出 `max_age_hours=25`（1 小时 buffer）；每小时导出 `max_age_hours=1`
 
 9.4 新增加密模块（backend/oss_crypto.py）
 - `get_fernet()`：Fernet 实例在进程内缓存一次。Key 解析优先级：
@@ -581,6 +589,7 @@ OSS_ENC_KEY=
   - `oss_missing` → "OSS 文件缺失"
   - `oss_unexpected` → "OSS 文件异常出现"
 - 邮件开关：复用 `email_alert_on_status`（两类共用）
+- 时效（max_age_hours）影响：见 9.3 节，陈旧匹配按"不存在"处理
 
 9.8 新增 API 路由（backend/api/oss.py，prefix="/api"）
 ```

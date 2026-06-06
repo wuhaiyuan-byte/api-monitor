@@ -676,6 +676,10 @@
                                 <span class="stat-label">Expect</span>
                                 <span class="stat-value">{{ m.expected_present ? '应存在' : '不应存在' }}</span>
                             </div>
+                            <div class="stat" v-if="m.max_age_hours">
+                                <span class="stat-label">新鲜度</span>
+                                <span class="stat-value">≤ {{ m.max_age_hours }}h</span>
+                            </div>
                             <div class="stat">
                                 <span class="stat-label">Status</span>
                                 <span class="stat-value">{{ ossStatusLabel(m) }}</span>
@@ -686,6 +690,7 @@
                             </div>
                         </div>
                         <div v-if="m.last_matched_key" class="monitor-url" style="margin-top: 8px; font-size: 12px;">匹配: {{ m.last_matched_key }}</div>
+                        <div v-if="m.last_matched_modified" class="monitor-url" style="margin-top: 4px; font-size: 12px; color: var(--text-muted);">上传时间: {{ formatDate(m.last_matched_modified) }}</div>
                         <div v-if="m.last_error" class="monitor-url" style="margin-top: 4px; font-size: 12px; color: var(--danger);">错误: {{ m.last_error }}</div>
                     </div>
                 </div>
@@ -1099,16 +1104,28 @@
                                 </el-select>
                             </div>
                             <div class="form-row">
+                                <label class="form-label">Region *</label>
+                                <el-select v-model="ossForm.region" @change="onOssRegionChange" style="width: 100%;">
+                                    <el-option label="杭州 (cn-hangzhou)" value="cn-hangzhou"></el-option>
+                                    <el-option label="上海 (cn-shanghai)" value="cn-shanghai"></el-option>
+                                    <el-option label="北京 (cn-beijing)" value="cn-beijing"></el-option>
+                                    <el-option label="深圳 (cn-shenzhen)" value="cn-shenzhen"></el-option>
+                                    <el-option label="广州 (cn-guangzhou)" value="cn-guangzhou"></el-option>
+                                    <el-option label="成都 (cn-chengdu)" value="cn-chengdu"></el-option>
+                                    <el-option label="香港 (cn-hongkong)" value="cn-hongkong"></el-option>
+                                    <el-option label="新加坡 (ap-southeast-1)" value="ap-southeast-1"></el-option>
+                                    <el-option label="美西 (us-west-1)" value="us-west-1"></el-option>
+                                    <el-option label="自定义" value="custom"></el-option>
+                                </el-select>
+                            </div>
+                            <div class="form-row">
                                 <label class="form-label">Endpoint *</label>
-                                <el-input v-model="ossForm.endpoint" placeholder="https://oss-cn-hangzhou.aliyuncs.com"></el-input>
+                                <el-input v-model="ossForm.endpoint" :disabled="ossForm.region !== 'custom'" placeholder="https://oss-cn-shanghai.aliyuncs.com"></el-input>
+                                <div style="color: var(--text-muted); font-size: 12px; margin-top: 4px;">选择 Region 自动填充；选"自定义"可手填</div>
                             </div>
                             <div class="form-row">
                                 <label class="form-label">Bucket *</label>
                                 <el-input v-model="ossForm.bucket" placeholder="my-bucket"></el-input>
-                            </div>
-                            <div class="form-row">
-                                <label class="form-label">Region</label>
-                                <el-input v-model="ossForm.region" placeholder="cn-hangzhou"></el-input>
                             </div>
                             <div class="form-row">
                                 <label class="form-label">Access Key ID *</label>
@@ -1127,8 +1144,11 @@
 
                         <div v-show="activeOssFormTab === 'rule'">
                             <div class="form-row">
-                                <label class="form-label">Prefix（前缀路径）</label>
-                                <el-input v-model="ossForm.prefix" placeholder="例：exports/daily/ （留空扫描整个 bucket）"></el-input>
+                                <label class="form-label">访问路径 (Prefix) *</label>
+                                <el-input v-model="ossForm.prefix" placeholder="例：my-team/exports/daily/"></el-input>
+                                <div style="color: var(--text-muted); font-size: 12px; margin-top: 4px;">
+                                    ⚠️ <strong>必填</strong>。没有 bucket 全量 List 权限时必须填具体路径（你拥有权限的子目录）
+                                </div>
                             </div>
                             <div class="form-row">
                                 <label class="form-label">关键字 *</label>
@@ -1148,6 +1168,13 @@
                                     <span style="color: var(--text-muted); font-size: 12px;">
                                         {{ ossForm.expected_present ? '未找到匹配文件 → 告警' : '找到匹配文件 → 告警' }}
                                     </span>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <label class="form-label">文件时效（新鲜度窗口，小时）</label>
+                                <el-input-number v-model="ossForm.max_age_hours" :min="1" :max="8760" :step="1" style="width: 100%;" :controls="true"></el-input-number>
+                                <div style="color: var(--text-muted); font-size: 12px; margin-top: 4px;">
+                                    留空 = 不检查时效。设置后：匹配项的 <code>Last-Modified</code> 必须在过去 N 小时内。例：每日导出填 25（留 1 小时 buffer）；每小时填 1
                                 </div>
                             </div>
                             <div class="form-row">
@@ -1194,10 +1221,12 @@
                     <div v-if="ossDetailMonitor">
                         <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 16px;">
                             <div><strong>Bucket:</strong> {{ ossDetailMonitor.bucket }}</div>
+                            <div><strong>Region:</strong> {{ ossDetailMonitor.region || '(default)' }}</div>
                             <div><strong>Prefix:</strong> {{ ossDetailMonitor.prefix || '(整个 bucket)' }}</div>
                             <div><strong>Keyword:</strong> {{ ossDetailMonitor.keyword }}</div>
                             <div><strong>Match mode:</strong> {{ ossDetailMonitor.match_mode }}</div>
                             <div><strong>Expect:</strong> {{ ossDetailMonitor.expected_present ? '应存在' : '不应存在' }}</div>
+                            <div><strong>新鲜度窗口:</strong> {{ ossDetailMonitor.max_age_hours ? ossDetailMonitor.max_age_hours + ' 小时' : '不检查' }}</div>
                             <div><strong>当前连续失败:</strong> {{ ossDetailMonitor.consecutive_failures }}</div>
                         </div>
                         <table class="table">
@@ -1346,19 +1375,38 @@
                 const ossForm = reactive({
                     name: '',
                     provider: 'aliyun',
-                    endpoint: 'https://oss-cn-hangzhou.aliyuncs.com',
+                    endpoint: 'https://oss-cn-shanghai.aliyuncs.com',
                     bucket: '',
-                    region: '',
+                    region: 'cn-shanghai',
                     prefix: '',
                     keyword: '',
                     match_mode: 'contains',
                     expected_present: true,
+                    max_age_hours: null,
                     failure_threshold: 2,
                     interval_seconds: 300,
                     is_active: true,
                     access_key_id: '',
                     access_key_secret: ''
                 });
+
+                // Map a chosen region code to its default Aliyun OSS endpoint.
+                // Returns null for 'custom' (operator fills manually).
+                const OSS_REGION_ENDPOINTS = {
+                    'cn-hangzhou':  'https://oss-cn-hangzhou.aliyuncs.com',
+                    'cn-shanghai':  'https://oss-cn-shanghai.aliyuncs.com',
+                    'cn-beijing':   'https://oss-cn-beijing.aliyuncs.com',
+                    'cn-shenzhen':  'https://oss-cn-shenzhen.aliyuncs.com',
+                    'cn-guangzhou': 'https://oss-cn-guangzhou.aliyuncs.com',
+                    'cn-chengdu':   'https://oss-cn-chengdu.aliyuncs.com',
+                    'cn-hongkong':  'https://oss-cn-hongkong.aliyuncs.com',
+                    'ap-southeast-1': 'https://oss-ap-southeast-1.aliyuncs.com',
+                    'us-west-1':    'https://oss-us-west-1.aliyuncs.com',
+                };
+                function onOssRegionChange() {
+                    const ep = OSS_REGION_ENDPOINTS[ossForm.region];
+                    if (ep) ossForm.endpoint = ep;
+                }
 
                 const filteredAlerts = computed(() => {
                     if (alertFilter.value === 'all') return alerts.value;
@@ -1633,13 +1681,14 @@ function toBeijingDate(dateStr) {
                     Object.assign(ossForm, {
                         name: '',
                         provider: 'aliyun',
-                        endpoint: 'https://oss-cn-hangzhou.aliyuncs.com',
+                        endpoint: 'https://oss-cn-shanghai.aliyuncs.com',
                         bucket: '',
-                        region: '',
+                        region: 'cn-shanghai',
                         prefix: '',
                         keyword: '',
                         match_mode: 'contains',
                         expected_present: true,
+                        max_age_hours: null,
                         failure_threshold: 2,
                         interval_seconds: 300,
                         is_active: true,
@@ -1659,11 +1708,12 @@ function toBeijingDate(dateStr) {
                         provider: m.provider || 'aliyun',
                         endpoint: m.endpoint || '',
                         bucket: m.bucket || '',
-                        region: m.region || '',
+                        region: m.region || 'cn-shanghai',
                         prefix: m.prefix || '',
                         keyword: m.keyword || '',
                         match_mode: m.match_mode || 'contains',
                         expected_present: m.expected_present !== false,
+                        max_age_hours: m.max_age_hours || null,
                         failure_threshold: m.failure_threshold || 2,
                         interval_seconds: m.interval_seconds || 300,
                         is_active: m.is_active !== false,
@@ -1703,8 +1753,8 @@ function toBeijingDate(dateStr) {
                 }
 
                 async function submitOssForm() {
-                    if (!ossForm.name || !ossForm.bucket || !ossForm.endpoint || !ossForm.keyword || !ossForm.access_key_id) {
-                        ElMessage.error('请填写所有必填项（标 * 字段）');
+                    if (!ossForm.name || !ossForm.bucket || !ossForm.endpoint || !ossForm.keyword || !ossForm.access_key_id || !ossForm.prefix) {
+                        ElMessage.error('请填写所有必填项（标 * 字段），包括 Prefix 访问路径');
                         return;
                     }
                     if (!ossIsEditMode.value && !ossForm.access_key_secret) {
@@ -1728,7 +1778,12 @@ function toBeijingDate(dateStr) {
                         ossDialogVisible.value = false;
                         await fetchOssMonitors();
                     } catch (e) {
-                        ElMessage.error(e.response?.data?.detail || e.message);
+                        const detail = e.response?.data?.detail;
+                        if (Array.isArray(detail)) {
+                            ElMessage.error(detail.map(d => d.msg || JSON.stringify(d)).join('; '));
+                        } else {
+                            ElMessage.error(detail || e.message);
+                        }
                     } finally {
                         ossSubmitting.value = false;
                     }
@@ -2116,7 +2171,7 @@ function toBeijingDate(dateStr) {
                     // OSS module
                     ossMonitors, ossDialogVisible, ossDetailDialogVisible, ossDetailMonitor, ossDetailHistory,
                     ossIsEditMode, ossSubmitting, ossTesting, ossTestResult, activeOssFormTab, ossForm,
-                    getOssStatus, ossStatusLabel,
+                    getOssStatus, ossStatusLabel, onOssRegionChange,
                     fetchOssMonitors, openOssAddDialog, openOssEditDialog, submitOssForm, deleteOssMonitor,
                     ossCheckNow, openOssDetail, ossTestConnection,
                     getMonitorStatus, getResponseTimeClass, formatRelativeTime, formatDate,
