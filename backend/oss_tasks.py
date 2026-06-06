@@ -192,15 +192,16 @@ async def check_oss_monitor(oss_monitor_id: int):
 
         bucket = _build_bucket(monitor)
         # Debug log: record scan inputs so we can correlate with downstream
-        # freshness decisions when something looks wrong. Logged at INFO so
-        # operators can `docker compose logs backend | grep OSS-DEBUG` to
-        # trace a single monitor run.
-        logger.info(
+        # freshness decisions when something looks wrong. Use print() so the
+        # line shows up in `docker compose logs backend` regardless of the
+        # uvicorn/Python logging level configuration. Grep for [OSS-DEBUG].
+        print(
             f"[OSS-DEBUG] monitor={monitor.id} bucket={monitor.bucket} "
             f"prefix={monitor.prefix!r} keyword={monitor.keyword!r} "
             f"match_mode={monitor.match_mode} max_age_hours={monitor.max_age_hours} "
             f"expected_present={monitor.expected_present} "
-            f"now_utc={datetime.utcnow().isoformat()}"
+            f"now_utc={datetime.utcnow().isoformat()}",
+            flush=True,
         )
         matched, first, scanned, truncated, err, all_matches = await _scan(
             bucket, monitor.prefix or "", monitor.keyword, monitor.match_mode
@@ -209,14 +210,21 @@ async def check_oss_monitor(oss_monitor_id: int):
         # last_modified so the operator can see exactly what oss2 returned
         # and how the freshness comparison was evaluated.
         for k, fm in all_matches:
-            logger.info(
+            print(
                 f"[OSS-DEBUG]   matched: {k}  "
-                f"last_modified={fm.isoformat() if fm else 'None'}"
+                f"last_modified={fm.isoformat() if fm else 'None'}",
+                flush=True,
             )
         if not all_matches:
-            logger.info(f"[OSS-DEBUG]   (no matches found in {scanned} scanned objects)")
+            print(
+                f"[OSS-DEBUG]   (no matches found in {scanned} scanned objects)",
+                flush=True,
+            )
         if truncated:
-            logger.info(f"[OSS-DEBUG]   scan truncated at {SCAN_LIMIT} objects")
+            print(
+                f"[OSS-DEBUG]   scan truncated at {SCAN_LIMIT} objects",
+                flush=True,
+            )
 
         # Determine if any/all matched files are "stale" (older than max_age_hours).
         # If any match is fresh, the check passes. If all matches are stale (or
@@ -236,10 +244,11 @@ async def check_oss_monitor(oss_monitor_id: int):
             if not fresh_matches and stale_matches:
                 is_stale = True
         if matched and monitor.max_age_hours:
-            logger.info(
+            print(
                 f"[OSS-DEBUG]   cutoff_utc={cutoff.isoformat() if cutoff else 'None'} "
                 f"fresh={len(fresh_matches)} stale={len(stale_matches)} "
-                f"is_stale={is_stale}"
+                f"is_stale={is_stale}",
+                flush=True,
             )
 
         if err:
