@@ -66,6 +66,16 @@ def get_fernet() -> Fernet:
     return _cached_fernet
 
 
+# Eager init: resolve (and persist, if needed) the key at import time so the
+# key file is in place before the first API request, not lazily on first use.
+# This makes the behavior deterministic and lets an operator see the log
+# line "Generated and persisted Fernet key" in the startup logs.
+try:
+    get_fernet()
+except Exception as e:  # pragma: no cover
+    logging.warning(f"[oss_crypto] eager key init failed (will retry on first use): {e}")
+
+
 def encrypt_secret(plain: str) -> str:
     if plain is None:
         return None
