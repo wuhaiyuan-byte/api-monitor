@@ -1098,14 +1098,14 @@
                             </div>
                             <div class="form-row">
                                 <label class="form-label">Provider</label>
-                                <el-select v-model="ossForm.provider" style="width: 100%;">
+                                <el-select v-model="ossForm.provider" :teleported="false" style="width: 100%;">
                                     <el-option label="Aliyun OSS" value="aliyun"></el-option>
                                     <el-option label="S3 兼容" value="s3"></el-option>
                                 </el-select>
                             </div>
                             <div class="form-row">
-                                <label class="form-label">Region *</label>
-                                <el-select v-model="ossForm.region" @change="onOssRegionChange" style="width: 100%;">
+                                <label class="form-label">Region * <span style="color: var(--accent); font-weight: 510;">{{ ossForm.region && ossForm.region !== 'custom' ? '(' + ossForm.region + ')' : '' }}</span></label>
+                                <el-select v-model="ossForm.region" @change="onOssRegionChange" :teleported="false" style="width: 100%;">
                                     <el-option label="杭州 (cn-hangzhou)" value="cn-hangzhou"></el-option>
                                     <el-option label="上海 (cn-shanghai)" value="cn-shanghai"></el-option>
                                     <el-option label="北京 (cn-beijing)" value="cn-beijing"></el-option>
@@ -1115,17 +1115,24 @@
                                     <el-option label="香港 (cn-hongkong)" value="cn-hongkong"></el-option>
                                     <el-option label="新加坡 (ap-southeast-1)" value="ap-southeast-1"></el-option>
                                     <el-option label="美西 (us-west-1)" value="us-west-1"></el-option>
-                                    <el-option label="自定义" value="custom"></el-option>
+                                    <el-option label="自定义 (手填 endpoint)" value="custom"></el-option>
                                 </el-select>
                             </div>
                             <div class="form-row">
-                                <label class="form-label">Endpoint *</label>
+                                <label class="form-label">Endpoint * <span v-if="ossForm.region !== 'custom'" style="color: var(--text-muted); font-size: 12px; font-weight: 400;">（选"自定义"可改）</span></label>
                                 <el-input v-model="ossForm.endpoint" :disabled="ossForm.region !== 'custom'" placeholder="https://oss-cn-shanghai.aliyuncs.com"></el-input>
                                 <div style="color: var(--text-muted); font-size: 12px; margin-top: 4px;">选择 Region 自动填充；选"自定义"可手填</div>
                             </div>
                             <div class="form-row">
                                 <label class="form-label">Bucket *</label>
                                 <el-input v-model="ossForm.bucket" placeholder="my-bucket"></el-input>
+                            </div>
+                            <div class="form-row">
+                                <label class="form-label">访问路径 (Prefix) *</label>
+                                <el-input v-model="ossForm.prefix" placeholder="例：my-team/exports/daily/"></el-input>
+                                <div style="color: var(--text-muted); font-size: 12px; margin-top: 4px;">
+                                    ⚠️ <strong>必填</strong>。填你拥有 List 权限的具体子目录（Test Connection 会用这个路径）
+                                </div>
                             </div>
                             <div class="form-row">
                                 <label class="form-label">Access Key ID *</label>
@@ -1144,19 +1151,12 @@
 
                         <div v-show="activeOssFormTab === 'rule'">
                             <div class="form-row">
-                                <label class="form-label">访问路径 (Prefix) *</label>
-                                <el-input v-model="ossForm.prefix" placeholder="例：my-team/exports/daily/"></el-input>
-                                <div style="color: var(--text-muted); font-size: 12px; margin-top: 4px;">
-                                    ⚠️ <strong>必填</strong>。没有 bucket 全量 List 权限时必须填具体路径（你拥有权限的子目录）
-                                </div>
-                            </div>
-                            <div class="form-row">
                                 <label class="form-label">关键字 *</label>
                                 <el-input v-model="ossForm.keyword" placeholder="文件 key 中需要包含的子串"></el-input>
                             </div>
                             <div class="form-row">
                                 <label class="form-label">匹配方式</label>
-                                <el-select v-model="ossForm.match_mode" style="width: 100%;">
+                                <el-select v-model="ossForm.match_mode" :teleported="false" style="width: 100%;">
                                     <el-option label="子串 (contains)" value="contains"></el-option>
                                     <el-option label="正则 (regex)" value="regex"></el-option>
                                 </el-select>
