@@ -57,7 +57,7 @@ async def _scan(
     prefix: str,
     keyword: str,
     match_mode: str,
-) -> Tuple[bool, Optional[oss2.models.ObjectSummary], int, bool, Optional[str]]:
+) -> Tuple[bool, Optional["oss2.ObjectSummary"], int, bool, Optional[str]]:
     """Run a single scan pass.
 
     Returns:

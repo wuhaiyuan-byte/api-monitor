@@ -15,21 +15,23 @@ from cryptography.fernet import Fernet
 
 _KEY_ENV = "OSS_ENC_KEY"
 _warned = False
+_ephemeral_key: bytes | None = None
 
 
 def get_fernet() -> Fernet:
-    global _warned
+    global _warned, _ephemeral_key
     key = os.getenv(_KEY_ENV)
     if not key:
-        key = Fernet.generate_key().decode()
-        if not _warned:
-            logging.warning(
-                f"[oss_crypto] {_KEY_ENV} not set, generated an ephemeral key. "
-                f"Persisted OSS monitor secrets will be unreadable on restart. "
-                f"Set {_KEY_ENV}={key} in your .env to make it permanent."
-            )
-            _warned = True
-        return Fernet(key.encode())
+        if _ephemeral_key is None:
+            _ephemeral_key = Fernet.generate_key()
+            if not _warned:
+                logging.warning(
+                    f"[oss_crypto] {_KEY_ENV} not set, generated an ephemeral key. "
+                    f"Persisted OSS monitor secrets will be unreadable on restart. "
+                    f"Set {_KEY_ENV}={_ephemeral_key.decode()} in your .env to make it permanent."
+                )
+                _warned = True
+        return Fernet(_ephemeral_key)
     if isinstance(key, str):
         key = key.encode()
     return Fernet(key)
