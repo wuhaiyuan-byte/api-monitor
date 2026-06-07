@@ -251,19 +251,40 @@ async def check_oss_monitor(oss_monitor_id: int):
         cutoff = None
         if matched and monitor.max_age_hours:
             cutoff = datetime.utcnow() - timedelta(hours=monitor.max_age_hours)
+            # Per-file decision log: show exactly what was compared and the result.
             for key, fm in all_matches:
-                if fm is None or fm < cutoff:
+                if fm is None:
+                    decision = "stale (last_modified unparseable)"
+                    print(
+                        f"[OSS-DEBUG]     check: {key}\n"
+                        f"                  fm={fm!r}  cutoff={cutoff.isoformat()}\n"
+                        f"                  fm < cutoff: n/a -> {decision}",
+                        flush=True,
+                    )
                     stale_matches.append((key, fm))
                 else:
-                    fresh_matches.append((key, fm))
+                    is_stale_this = fm < cutoff
+                    decision = "stale" if is_stale_this else "fresh"
+                    age_h = (datetime.utcnow() - fm).total_seconds() / 3600
+                    print(
+                        f"[OSS-DEBUG]     check: {key}\n"
+                        f"                  fm={fm.isoformat()}  cutoff={cutoff.isoformat()}\n"
+                        f"                  age={age_h:.2f}h  max_age_hours={monitor.max_age_hours}\n"
+                        f"                  fm < cutoff: {is_stale_this} -> {decision}",
+                        flush=True,
+                    )
+                    if is_stale_this:
+                        stale_matches.append((key, fm))
+                    else:
+                        fresh_matches.append((key, fm))
             # A match exists in OSS but all of them are stale.
             if not fresh_matches and stale_matches:
                 is_stale = True
         if matched and monitor.max_age_hours:
             print(
-                f"[OSS-DEBUG]   cutoff_utc={cutoff.isoformat() if cutoff else 'None'} "
+                f"[OSS-DEBUG]   ===> cutoff_utc={cutoff.isoformat() if cutoff else 'None'} "
                 f"fresh={len(fresh_matches)} stale={len(stale_matches)} "
-                f"is_stale={is_stale}",
+                f"is_stale={is_stale} -> status=not_matched",
                 flush=True,
             )
 
