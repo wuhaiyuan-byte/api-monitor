@@ -8,6 +8,7 @@ of its private helpers. Broadcast event types are namespaced
 separately without colliding with existing 'status_update' / 'new_alert'.
 """
 import re
+import json
 import logging
 from datetime import datetime, timedelta
 from typing import Optional, Tuple
@@ -421,8 +422,14 @@ async def check_oss_monitor(oss_monitor_id: int):
         }
         try:
             debug_info_json = json.dumps(debug_payload, ensure_ascii=False)
-        except Exception:
+            print(
+                f"[OSS-DEBUG]   DEBUG_INFO built: {len(debug_files)} files, "
+                f"json size={len(debug_info_json)} chars",
+                flush=True,
+            )
+        except Exception as e:
             debug_info_json = None
+            print(f"[OSS-DEBUG]   DEBUG_INFO json.dumps FAILED: {e}", flush=True)
 
         # Persist history (kept forever per spec).
         cr = _record_check(
@@ -431,6 +438,11 @@ async def check_oss_monitor(oss_monitor_id: int):
         )
         await session.commit()
         await session.refresh(cr)
+        print(
+            f"[OSS-DEBUG]   check_result id={cr.id} persisted with "
+            f"debug_info={'set (' + str(len(cr.debug_info or '')) + ' chars)' if cr.debug_info else 'NULL'}",
+            flush=True,
+        )
 
         # Update denormalized snapshot.
         monitor.last_status = status
