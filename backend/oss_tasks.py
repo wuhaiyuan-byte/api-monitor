@@ -80,18 +80,22 @@ async def _scan(
     prefix: str,
     keyword: str,
     match_mode: str,
-) -> Tuple[bool, Optional["oss2.ObjectSummary"], int, bool, Optional[str], list]:
+) -> Tuple[bool, Optional["oss2.ObjectSummary"], int, bool, Optional[str], list, list]:
     """Run a single scan pass.
 
     Returns:
-        (matched, first_match_summary, scanned_count, truncated, error_message, all_matches)
-        all_matches is a list of (key, last_modified_dt_or_None) for every
-        key that hit the keyword filter, capped at 20 to keep error messages sane.
+        (matched, first_match_summary, scanned_count, truncated, error_message, all_matches, sample_scanned)
+        all_matches: list of (key, last_modified) for every key that hit
+                     the keyword filter, capped at 20.
+        sample_scanned: list of (key, last_modified) for the first 5
+                        objects iterated regardless of match, so callers
+                        can show the user "what's actually in the prefix".
     """
     try:
         scanned = 0
         truncated = False
         all_matches: list = []
+        sample_scanned: list = []
         first: Optional["oss2.ObjectSummary"] = None
         for obj in oss2.ObjectIteratorV2(bucket, prefix=prefix or "", max_keys=SCAN_LIMIT + 1):
             scanned += 1
@@ -99,6 +103,11 @@ async def _scan(
                 truncated = True
                 break
             key = obj.key
+            fm = _to_datetime(obj.last_modified)
+            # Sample the first 5 scanned files for diagnostic logging so the
+            # user can see what the prefix actually contains, not just matches.
+            if len(sample_scanned) < 5:
+                sample_scanned.append((key, fm))
             if match_mode == "regex":
                 hit = bool(re.search(keyword, key))
             else:  # 'contains'
@@ -107,14 +116,14 @@ async def _scan(
                 if first is None:
                     first = obj
                 if len(all_matches) < 20:
-                    all_matches.append((key, _to_datetime(obj.last_modified)))
+                    all_matches.append((key, fm))
         if all_matches:
-            return True, first, scanned, truncated, None, all_matches
-        return False, None, scanned, truncated, None, []
+            return True, first, scanned, truncated, None, all_matches, sample_scanned
+        return False, None, scanned, truncated, None, [], sample_scanned
     except oss2.exceptions.OssError as e:
-        return False, None, 0, False, f"OSS API error: {e.code} {e.message}", []
+        return False, None, 0, False, f"OSS API error: {e.code} {e.message}", [], []
     except Exception as e:  # network, auth, etc.
-        return False, None, 0, False, str(e)[:500], []
+        return False, None, 0, False, str(e)[:500], [], []
 
 
 # ---------------------------------------------------------------------------
@@ -203,7 +212,7 @@ async def check_oss_monitor(oss_monitor_id: int):
             f"now_utc={datetime.utcnow().isoformat()}",
             flush=True,
         )
-        matched, first, scanned, truncated, err, all_matches = await _scan(
+        matched, first, scanned, truncated, err, all_matches, sample_scanned = await _scan(
             bucket, monitor.prefix or "", monitor.keyword, monitor.match_mode
         )
         # Per-file debug: log every matched key with the raw and normalized
@@ -223,6 +232,13 @@ async def check_oss_monitor(oss_monitor_id: int):
         if truncated:
             print(
                 f"[OSS-DEBUG]   scan truncated at {SCAN_LIMIT} objects",
+                flush=True,
+            )
+        # Always show the first few files actually in the prefix so the
+        # user can verify what's there even when there are 0 matches.
+        for k, fm in sample_scanned:
+            print(
+                f"[OSS-DEBUG]   sample(前 5 个对象): {k}  last_modified={fm.isoformat() if fm else 'None'}",
                 flush=True,
             )
 
