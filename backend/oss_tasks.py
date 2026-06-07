@@ -423,13 +423,11 @@ async def check_oss_monitor(oss_monitor_id: int):
         try:
             debug_info_json = json.dumps(debug_payload, ensure_ascii=False)
             print(
-                f"[OSS-DEBUG]   DEBUG_INFO built: {len(debug_files)} files, "
                 f"json size={len(debug_info_json)} chars",
                 flush=True,
             )
         except Exception as e:
             debug_info_json = None
-            print(f"[OSS-DEBUG]   DEBUG_INFO json.dumps FAILED: {e}", flush=True)
 
         # Persist history (kept forever per spec).
         cr = _record_check(
