@@ -1278,7 +1278,7 @@
                     <span class="dialog-title">检查明细 — {{ ossDebugRow ? formatDate(ossDebugRow.checked_at) : '' }}</span>
                     <button class="dialog-close" @click="ossDebugDialogVisible = false">×</button>
                 </div>
-                <div class="dialog-body">
+                <div class="dialog-body" style="overflow-y: auto; max-height: calc(90vh - 60px);">
                     <div v-if="ossDebugPayload">
                         <!-- Scan metadata -->
                         <div style="background: var(--bg-elevated); padding: 12px; border-radius: var(--radius-sm); margin-bottom: 16px; font-family: 'Berkeley Mono', monospace; font-size: 12px;">
@@ -1288,8 +1288,56 @@
                             <div><strong>scanned:</strong> {{ ossDebugPayload.scanned }} 个对象，<strong>truncated:</strong> {{ ossDebugPayload.truncated }}</div>
                             <div><strong>keyword:</strong> {{ ossDebugPayload.keyword }}  ·  <strong>match_mode:</strong> {{ ossDebugPayload.match_mode }}  ·  <strong>max_age_hours:</strong> {{ ossDebugPayload.max_age_hours || '不检查' }}</div>
                         </div>
-                        <!-- Per-file table -->
-                        <table class="table">
+                        <!-- Summary quick-stats -->
+                        <div style="display: flex; gap: 16px; margin-bottom: 12px; font-size: 13px;">
+                            <span><strong>{{ ossDebugPayload.files.length }}</strong> 个文件</span>
+                            <span style="color: var(--success);">{{ ossDebugPayload.files.filter(f => f.decision === 'fresh').length }} fresh</span>
+                            <span style="color: var(--danger);">{{ ossDebugPayload.files.filter(f => f.decision === 'stale').length }} stale</span>
+                            <span style="color: var(--text-muted);">{{ ossDebugPayload.files.filter(f => f.matched).length }} 匹配关键字</span>
+                        </div>
+                        <!-- Sticky-header table with scrollable body -->
+                        <div style="max-height: calc(90vh - 280px); overflow-y: auto; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);">
+                            <table class="table" style="margin-bottom: 0;">
+                                <thead style="position: sticky; top: 0; background: var(--bg-secondary); z-index: 1;">
+                                    <tr>
+                                        <th>#</th>
+                                        <th>Key</th>
+                                        <th>Matched</th>
+                                        <th>Last-Modified (UTC)</th>
+                                        <th>Age (h)</th>
+                                        <th>Decision</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr v-for="(f, idx) in ossDebugPayload.files" :key="idx"
+                                        :style="f.matched ? 'background: var(--accent-bg);' : ''">
+                                        <td style="color: var(--text-muted); font-size: 12px;">{{ idx + 1 }}</td>
+                                        <td style="font-family: 'Berkeley Mono', monospace; font-size: 12px;">{{ f.key }}</td>
+                                        <td>
+                                            <span :class="f.matched ? 'tag active' : 'tag inactive'">{{ f.matched ? '✓ 匹配' : '·' }}</span>
+                                        </td>
+                                        <td style="font-size: 12px; color: var(--text-muted);">{{ f.fm || '-' }}</td>
+                                        <td>{{ f.age_h != null ? f.age_h : '-' }}</td>
+                                        <td>
+                                            <span v-if="f.decision === 'fresh'" class="tag active">fresh</span>
+                                            <span v-else-if="f.decision === 'stale'" class="tag error">stale</span>
+                                            <span v-else style="color: var(--text-muted);">-</span>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div v-if="!ossDebugPayload.files || ossDebugPayload.files.length === 0" style="padding: 24px; text-align: center; color: var(--text-muted);">
+                            (此次检查没有扫描记录 —— 可能是更老的检查版本，没保存 debug_info)
+                        </div>
+                    </div>
+                    <div v-else style="padding: 24px; text-align: center; color: var(--text-muted);">
+                        (本条记录没有保存 debug 信息)
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
                             <thead>
                                 <tr>
                                     <th>#</th>
