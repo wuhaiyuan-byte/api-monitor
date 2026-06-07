@@ -281,16 +281,23 @@ async def check_oss_monitor(oss_monitor_id: int):
         # Determine if any/all matched files are "stale" (older than max_age_hours).
         # If any match is fresh, the check passes. If all matches are stale (or
         # there are no matches at all), the result is "not matched".
+        # IMPORTANT: iterate over all matched files via all_scanned, not the
+        # 20-capped all_matches. all_matches is only kept short so the
+        # error_message blob doesn't get too long; the freshness decision
+        # must consider every match, otherwise a fresh file at position 21+
+        # gets ignored and the check stays "not_matched" even when a fresh
+        # file exists.
         is_stale = False
         fresh_matches: list = []
         stale_matches: list = []
         cutoff = None
-        if matched and monitor.max_age_hours:
+        all_matched_full = [(k, fm) for k, fm, hit in all_scanned if hit]
+        if all_matched_full and monitor.max_age_hours:
             cutoff = datetime.utcnow() - timedelta(hours=monitor.max_age_hours)
             # Per-file decision log: SINGLE LINE per file with all comparison
             # fields joined by ' | ' so docker's log driver doesn't fragment
             # a multi-line print() into separate log entries.
-            for key, fm in all_matches:
+            for key, fm in all_matched_full:
                 if fm is None:
                     print(
                         f"[OSS-DEBUG]   CHECK | key={key} | fm=None | cutoff={cutoff.isoformat()} "
@@ -316,11 +323,11 @@ async def check_oss_monitor(oss_monitor_id: int):
             # A match exists in OSS but all of them are stale.
             if not fresh_matches and stale_matches:
                 is_stale = True
-        if matched and monitor.max_age_hours:
+        if all_matched_full and monitor.max_age_hours:
             print(
                 f"[OSS-DEBUG]   ===> cutoff_utc={cutoff.isoformat() if cutoff else 'None'} "
                 f"fresh={len(fresh_matches)} stale={len(stale_matches)} "
-                f"is_stale={is_stale} -> status=not_matched",
+                f"is_stale={is_stale} -> status={'matched' if fresh_matches else 'not_matched'}",
                 flush=True,
             )
 
