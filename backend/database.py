@@ -52,6 +52,9 @@ async def _migrate():
                 # check_results
                 await sqlite_add_col("check_results", "anomaly_type", "VARCHAR(32)", None)
 
+                # oss_check_results
+                await sqlite_add_col("oss_check_results", "debug_info", "TEXT", None)
+
                 # alerts
                 await sqlite_add_col("alerts", "is_fired", "BOOLEAN", "1")
                 await sqlite_add_col("alerts", "consecutive_failures", "INTEGER", "1")
@@ -85,6 +88,9 @@ async def _migrate():
                 await pg_add_col("monitors", "failure_threshold_timeout", "INTEGER", "2")
 
                 await pg_add_col("check_results", "anomaly_type", "VARCHAR(32)", None)
+
+                # oss_check_results
+                await pg_add_col("oss_check_results", "debug_info", "TEXT", None)
 
                 await pg_add_col("alerts", "is_fired", "BOOLEAN", "TRUE")
                 await pg_add_col("alerts", "consecutive_failures", "INTEGER", "1")

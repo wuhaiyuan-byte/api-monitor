@@ -80,6 +80,20 @@ class OssCheckResult(Base):
     scanned_count = Column(Integer, nullable=True)
     scan_truncated = Column(Boolean, nullable=False, default=False)
     error_message = Column(Text, nullable=True)
+    # Per-check diagnostic JSON: list of every file scanned, its
+    # last_modified, whether the keyword matched, and the freshness
+    # decision. Capped at ~100 files to keep payloads small.
+    # Format:
+    #   {
+    #     "now_utc": "...", "cutoff_utc": "...", "recursive": true,
+    #     "max_age_hours": 25, "keyword": "cdp_tag", "match_mode": "contains",
+    #     "truncated": false,
+    #     "files": [
+    #       {"key": "...", "fm": "...", "matched": true, "decision": "stale", "age_h": 384.32},
+    #       ...
+    #     ]
+    #   }
+    debug_info = Column(Text, nullable=True)
     checked_at = Column(DateTime, default=datetime.utcnow)
 
     monitor = relationship("OssMonitor", back_populates="check_results")

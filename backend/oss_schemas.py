@@ -112,6 +112,7 @@ class OssCheckResultResponse(BaseModel):
     scanned_count: Optional[int] = None
     scan_truncated: bool
     error_message: Optional[str] = None
+    debug_info: Optional[str] = None
     checked_at: datetime
 
     class Config:

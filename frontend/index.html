@@ -1175,9 +1175,13 @@
                             </div>
                             <div class="form-row">
                                 <label class="form-label">文件时效（新鲜度窗口，小时）</label>
-                                <el-input-number v-model="ossForm.max_age_hours" :min="1" :max="8760" :step="1" style="width: 100%;" :controls="true"></el-input-number>
+                                <div style="display: flex; gap: 8px; align-items: center;">
+                                    <el-input-number v-model="ossForm.max_age_hours" :min="1" :max="8760" :step="1" style="flex: 1;" :controls="true"></el-input-number>
+                                    <button type="button" class="btn btn-ghost btn-small" @click="setOssMaxAgeDaily" title="一键设为 48 小时（适合每日数据 + 隔天上传）">每日 (48h)</button>
+                                </div>
                                 <div style="color: var(--text-muted); font-size: 12px; margin-top: 4px;">
-                                    留空 = 不检查时效。设置后：匹配项的 <code>Last-Modified</code> 必须在过去 N 小时内。例：每日导出填 25（留 1 小时 buffer）；每小时填 1
+                                    留空 = 不检查时效。设置后：匹配项的 <code>Last-Modified</code> 必须在过去 N 小时内。
+                                    <br>👉 每日文件（数据标 X 日，上传 X-1 日傍晚）→ 用"每日 (48h)"
                                 </div>
                             </div>
                             <div class="form-row">
@@ -1243,11 +1247,15 @@
                                 </tr>
                             </thead>
                             <tbody>
-                                <tr v-for="row in ossDetailHistory" :key="row.id">
+                                <tr v-for="row in ossDetailHistory" :key="row.id"
+                                    @click="openOssCheckDebug(row)"
+                                    style="cursor: pointer;"
+                                    title="点击查看扫描明细">
                                     <td style="font-size: 12px; color: var(--text-muted);">{{ formatDate(row.checked_at) }}</td>
                                     <td>
                                         <span class="tag" :class="row.status === 'matched' ? 'active' : (row.status === 'error' ? 'error' : 'inactive')">{{ row.status }}</span>
                                         <span v-if="row.scan_truncated" class="tag inactive" style="margin-left: 6px;">截断</span>
+                                        <span v-if="row.debug_info" class="tag inactive" style="margin-left: 6px;" title="本行有完整扫描日志">🔍 详情</span>
                                     </td>
                                     <td style="font-family: 'Berkeley Mono', monospace; font-size: 12px;">{{ row.matched_key || '-' }}</td>
                                     <td>{{ row.file_size ? Math.round(row.file_size) : '-' }}</td>
@@ -1255,6 +1263,66 @@
                                 </tr>
                             </tbody>
                         </table>
+                        <div style="margin-top: 12px; color: var(--text-muted); font-size: 12px;">
+                            💡 点击任意一行可查看完整扫描日志（每个扫到的文件 + freshness 判断）
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- OSS Check Debug Dialog -->
+        <div v-if="ossDebugDialogVisible" class="dialog-overlay" @click.self="ossDebugDialogVisible = false">
+            <div class="dialog" style="max-width: 1000px;">
+                <div class="dialog-header">
+                    <span class="dialog-title">检查明细 — {{ ossDebugRow ? formatDate(ossDebugRow.checked_at) : '' }}</span>
+                    <button class="dialog-close" @click="ossDebugDialogVisible = false">×</button>
+                </div>
+                <div class="dialog-body">
+                    <div v-if="ossDebugPayload">
+                        <!-- Scan metadata -->
+                        <div style="background: var(--bg-elevated); padding: 12px; border-radius: var(--radius-sm); margin-bottom: 16px; font-family: 'Berkeley Mono', monospace; font-size: 12px;">
+                            <div><strong>now_utc:</strong> {{ ossDebugPayload.now_utc }}</div>
+                            <div><strong>cutoff_utc:</strong> {{ ossDebugPayload.cutoff_utc || '(不检查时效)' }}</div>
+                            <div><strong>recursive:</strong> {{ ossDebugPayload.recursive ? 'true' : 'false' }}</div>
+                            <div><strong>scanned:</strong> {{ ossDebugPayload.scanned }} 个对象，<strong>truncated:</strong> {{ ossDebugPayload.truncated }}</div>
+                            <div><strong>keyword:</strong> {{ ossDebugPayload.keyword }}  ·  <strong>match_mode:</strong> {{ ossDebugPayload.match_mode }}  ·  <strong>max_age_hours:</strong> {{ ossDebugPayload.max_age_hours || '不检查' }}</div>
+                        </div>
+                        <!-- Per-file table -->
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Key</th>
+                                    <th>Matched</th>
+                                    <th>Last-Modified (UTC)</th>
+                                    <th>Age (h)</th>
+                                    <th>Decision</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="(f, idx) in ossDebugPayload.files" :key="idx">
+                                    <td style="color: var(--text-muted); font-size: 12px;">{{ idx + 1 }}</td>
+                                    <td style="font-family: 'Berkeley Mono', monospace; font-size: 12px;">{{ f.key }}</td>
+                                    <td>
+                                        <span :class="f.matched ? 'tag active' : 'tag inactive'">{{ f.matched ? '✓ 匹配' : '·' }}</span>
+                                    </td>
+                                    <td style="font-size: 12px; color: var(--text-muted);">{{ f.fm || '-' }}</td>
+                                    <td>{{ f.age_h != null ? f.age_h : '-' }}</td>
+                                    <td>
+                                        <span v-if="f.decision === 'fresh'" class="tag active">fresh</span>
+                                        <span v-else-if="f.decision === 'stale'" class="tag error">stale</span>
+                                        <span v-else style="color: var(--text-muted);">-</span>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <div v-if="!ossDebugPayload.files || ossDebugPayload.files.length === 0" style="padding: 24px; text-align: center; color: var(--text-muted);">
+                            (此次检查没有扫描记录 —— 可能是更老的检查版本，没保存 debug_info)
+                        </div>
+                    </div>
+                    <div v-else style="padding: 24px; text-align: center; color: var(--text-muted);">
+                        (本条记录没有保存 debug 信息)
                     </div>
                 </div>
             </div>
@@ -1369,6 +1437,9 @@
                 const ossDetailDialogVisible = ref(false);
                 const ossDetailMonitor = ref(null);
                 const ossDetailHistory = ref([]);
+                const ossDebugDialogVisible = ref(false);
+                const ossDebugRow = ref(null);
+                const ossDebugPayload = ref(null);
                 const ossIsEditMode = ref(false);
                 const ossSubmitting = ref(false);
                 const ossTesting = ref(false);
@@ -1828,6 +1899,28 @@ function toBeijingDate(dateStr) {
                     }
                 }
 
+                function openOssCheckDebug(row) {
+                    ossDebugRow.value = row;
+                    if (row && row.debug_info) {
+                        try {
+                            ossDebugPayload.value = JSON.parse(row.debug_info);
+                        } catch (e) {
+                            ossDebugPayload.value = null;
+                        }
+                    } else {
+                        ossDebugPayload.value = null;
+                    }
+                    ossDebugDialogVisible.value = true;
+                }
+
+                // Convenience: one-click "daily file" preset — set
+                // max_age_hours=48 (covers "data labeled tomorrow, uploaded
+                // late today" workflows like 每日人群). User can edit
+                // further if their upload window differs.
+                function setOssMaxAgeDaily() {
+                    ossForm.max_age_hours = 48;
+                }
+
                 function openMonitorDetail(monitor) {
                     selectedMonitor.value = monitor;
                     currentChartMonitorId.value = monitor.id;
@@ -2176,10 +2269,11 @@ function toBeijingDate(dateStr) {
                     editingGroupIndex, groupNameDraft,
                     // OSS module
                     ossMonitors, ossDialogVisible, ossDetailDialogVisible, ossDetailMonitor, ossDetailHistory,
+                    ossDebugDialogVisible, ossDebugRow, ossDebugPayload,
                     ossIsEditMode, ossSubmitting, ossTesting, ossTestResult, activeOssFormTab, ossForm,
-                    getOssStatus, ossStatusLabel, onOssRegionChange,
+                    getOssStatus, ossStatusLabel, onOssRegionChange, setOssMaxAgeDaily,
                     fetchOssMonitors, openOssAddDialog, openOssEditDialog, submitOssForm, deleteOssMonitor,
-                    ossCheckNow, openOssDetail, ossTestConnection,
+                    ossCheckNow, openOssDetail, openOssCheckDebug, ossTestConnection,
                     getMonitorStatus, getResponseTimeClass, formatRelativeTime, formatDate,
                     switchToAlerts, switchToSettings, fetchEmailSettings, saveEmailSettings, testEmailSettings,
                     startAddEmail, cancelAddEmail, confirmAddEmail, removeEmailFromGroup,

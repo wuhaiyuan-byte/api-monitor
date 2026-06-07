@@ -82,16 +82,21 @@ async def _scan(
     match_mode: str,
     recursive: bool = True,
     debug_verbose: bool = True,
-) -> Tuple[bool, Optional["oss2.ObjectSummary"], int, bool, Optional[str], list, list]:
+    debug_file_cap: int = 200,
+) -> Tuple[bool, Optional["oss2.ObjectSummary"], int, bool, Optional[str], list, list, list]:
     """Run a single scan pass.
 
     Returns:
-        (matched, first_match_summary, scanned_count, truncated, error_message, all_matches, sample_scanned)
+        (matched, first_match_summary, scanned_count, truncated, error_message,
+         all_matches, sample_scanned, all_scanned)
         all_matches: list of (key, last_modified) for every key that hit
                      the keyword filter, capped at 20.
         sample_scanned: list of (key, last_modified) for the first 5
                         objects iterated regardless of match, so callers
                         can show the user "what's actually in the prefix".
+        all_scanned: list of (key, last_modified, matched) for every file
+                     visited, capped at debug_file_cap, so the caller can
+                     persist a full per-file diagnostic in the DB.
 
     Args:
         recursive: if False, pass delimiter='/' to the SDK so only direct
@@ -100,12 +105,14 @@ async def _scan(
         debug_verbose: if True, log every file scanned via [OSS-DEBUG] SCAN
                        so the operator sees one log line per file. Default
                        True to make the scan transparent.
+        debug_file_cap: maximum entries to retain in all_scanned. Default 200.
     """
     try:
         scanned = 0
         truncated = False
         all_matches: list = []
         sample_scanned: list = []
+        all_scanned: list = []
         first: Optional["oss2.ObjectSummary"] = None
         kwargs = {"prefix": prefix or "", "max_keys": SCAN_LIMIT + 1}
         if not recursive:
@@ -117,10 +124,6 @@ async def _scan(
                 break
             key = obj.key
             fm = _to_datetime(obj.last_modified)
-            # Sample the first 5 scanned files for diagnostic logging so the
-            # user can see what the prefix actually contains, not just matches.
-            if len(sample_scanned) < 5:
-                sample_scanned.append((key, fm))
             if match_mode == "regex":
                 hit = bool(re.search(keyword, key))
             else:  # 'contains'
@@ -136,13 +139,17 @@ async def _scan(
                     first = obj
                 if len(all_matches) < 20:
                     all_matches.append((key, fm))
+            if len(all_scanned) < debug_file_cap:
+                all_scanned.append((key, fm, hit))
+            if len(sample_scanned) < 5:
+                sample_scanned.append((key, fm))
         if all_matches:
-            return True, first, scanned, truncated, None, all_matches, sample_scanned
-        return False, None, scanned, truncated, None, [], sample_scanned
+            return True, first, scanned, truncated, None, all_matches, sample_scanned, all_scanned
+        return False, None, scanned, truncated, None, [], sample_scanned, all_scanned
     except oss2.exceptions.OssError as e:
-        return False, None, 0, False, f"OSS API error: {e.code} {e.message}", [], []
+        return False, None, 0, False, f"OSS API error: {e.code} {e.message}", [], [], []
     except Exception as e:  # network, auth, etc.
-        return False, None, 0, False, str(e)[:500], [], []
+        return False, None, 0, False, str(e)[:500], [], [], []
 
 
 # ---------------------------------------------------------------------------
@@ -158,6 +165,7 @@ def _record_check(
     scanned_count: int,
     scan_truncated: bool,
     error_message: Optional[str],
+    debug_info_json: Optional[str] = None,
 ):
     cr = OssCheckResult(
         oss_monitor_id=monitor.id,
@@ -168,6 +176,7 @@ def _record_check(
         scanned_count=scanned_count,
         scan_truncated=scan_truncated,
         error_message=error_message,
+        debug_info=debug_info_json,
         checked_at=datetime.utcnow(),
     )
     session.add(cr)
@@ -232,13 +241,14 @@ async def check_oss_monitor(oss_monitor_id: int):
             f"now_utc={datetime.utcnow().isoformat()}",
             flush=True,
         )
-        matched, first, scanned, truncated, err, all_matches, sample_scanned = await _scan(
+        matched, first, scanned, truncated, err, all_matches, sample_scanned, all_scanned = await _scan(
             bucket,
             monitor.prefix or "",
             monitor.keyword,
             monitor.match_mode,
             recursive=bool(getattr(monitor, "recursive", True)),
             debug_verbose=True,
+            debug_file_cap=200,
         )
         # Per-file debug: log every matched key with the raw and normalized
         # last_modified so the operator can see exactly what oss2 returned
@@ -373,10 +383,51 @@ async def check_oss_monitor(oss_monitor_id: int):
                 + "\n".join(lines)
             )
 
+        # Build a per-file diagnostic blob. We attach freshness decisions
+        # to each file so the UI can show a clickable debug table.
+        cutoff_iso = cutoff.isoformat() if cutoff else None
+        debug_files = []
+        now_utc = datetime.utcnow()
+        for key, fm, hit in all_scanned:
+            entry = {
+                "key": key,
+                "fm": fm.isoformat() if fm else None,
+                "matched": bool(hit),
+            }
+            if fm and cutoff is not None and monitor.max_age_hours:
+                age_h = (now_utc - fm).total_seconds() / 3600
+                entry["age_h"] = round(age_h, 2)
+                entry["cutoff"] = cutoff_iso
+                if fm < cutoff:
+                    entry["decision"] = "stale"
+                else:
+                    entry["decision"] = "fresh"
+            elif hit:
+                # No freshness configured; if matched we just call it fresh.
+                entry["decision"] = "fresh"
+            else:
+                entry["decision"] = "n/a"
+            debug_files.append(entry)
+        debug_payload = {
+            "now_utc": now_utc.isoformat(),
+            "cutoff_utc": cutoff_iso,
+            "recursive": bool(getattr(monitor, "recursive", True)),
+            "scanned": scanned,
+            "truncated": truncated,
+            "max_age_hours": monitor.max_age_hours,
+            "keyword": monitor.keyword,
+            "match_mode": monitor.match_mode,
+            "files": debug_files,
+        }
+        try:
+            debug_info_json = json.dumps(debug_payload, ensure_ascii=False)
+        except Exception:
+            debug_info_json = None
+
         # Persist history (kept forever per spec).
         cr = _record_check(
             session, monitor, status, matched_key, file_size, file_modified_dt,
-            scanned, truncated, error_msg,
+            scanned, truncated, error_msg, debug_info_json,
         )
         await session.commit()
         await session.refresh(cr)
