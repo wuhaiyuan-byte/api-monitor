@@ -59,6 +59,7 @@ async def _migrate():
 
                 # OSS module columns
                 await sqlite_add_col("oss_monitors", "max_age_hours", "INTEGER", None)
+                await sqlite_add_col("oss_monitors", "recursive", "BOOLEAN", "1")
             else:
                 # PostgreSQL / others via INFORMATION_SCHEMA
                 async def pg_has_col(table: str, col: str) -> bool:
@@ -91,6 +92,7 @@ async def _migrate():
 
                 # OSS module columns
                 await pg_add_col("oss_monitors", "max_age_hours", "INTEGER", None)
+                await pg_add_col("oss_monitors", "recursive", "BOOLEAN", "TRUE")
     except Exception as e:
         # Never let migration failure block the service.
         logging.warning(f"DB migration step failed (non-fatal): {e}")

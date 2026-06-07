@@ -80,6 +80,8 @@ async def _scan(
     prefix: str,
     keyword: str,
     match_mode: str,
+    recursive: bool = True,
+    debug_verbose: bool = True,
 ) -> Tuple[bool, Optional["oss2.ObjectSummary"], int, bool, Optional[str], list, list]:
     """Run a single scan pass.
 
@@ -90,6 +92,14 @@ async def _scan(
         sample_scanned: list of (key, last_modified) for the first 5
                         objects iterated regardless of match, so callers
                         can show the user "what's actually in the prefix".
+
+    Args:
+        recursive: if False, pass delimiter='/' to the SDK so only direct
+                   children of `prefix` are returned (no subdirectory
+                   recursion). Default True for backward compat.
+        debug_verbose: if True, log every file scanned via [OSS-DEBUG] SCAN
+                       so the operator sees one log line per file. Default
+                       True to make the scan transparent.
     """
     try:
         scanned = 0
@@ -97,7 +107,10 @@ async def _scan(
         all_matches: list = []
         sample_scanned: list = []
         first: Optional["oss2.ObjectSummary"] = None
-        for obj in oss2.ObjectIteratorV2(bucket, prefix=prefix or "", max_keys=SCAN_LIMIT + 1):
+        kwargs = {"prefix": prefix or "", "max_keys": SCAN_LIMIT + 1}
+        if not recursive:
+            kwargs["delimiter"] = "/"
+        for obj in oss2.ObjectIteratorV2(bucket, **kwargs):
             scanned += 1
             if scanned > SCAN_LIMIT:
                 truncated = True
@@ -112,6 +125,12 @@ async def _scan(
                 hit = bool(re.search(keyword, key))
             else:  # 'contains'
                 hit = keyword in key
+            if debug_verbose:
+                print(
+                    f"[OSS-DEBUG]   SCAN | idx={scanned} | key={key} | "
+                    f"matched={hit} | fm={fm.isoformat() if fm else 'None'}",
+                    flush=True,
+                )
             if hit:
                 if first is None:
                     first = obj
@@ -207,13 +226,19 @@ async def check_oss_monitor(oss_monitor_id: int):
         print(
             f"[OSS-DEBUG] monitor={monitor.id} bucket={monitor.bucket} "
             f"prefix={monitor.prefix!r} keyword={monitor.keyword!r} "
-            f"match_mode={monitor.match_mode} max_age_hours={monitor.max_age_hours} "
+            f"match_mode={monitor.match_mode} recursive={getattr(monitor, 'recursive', True)} "
+            f"max_age_hours={monitor.max_age_hours} "
             f"expected_present={monitor.expected_present} "
             f"now_utc={datetime.utcnow().isoformat()}",
             flush=True,
         )
         matched, first, scanned, truncated, err, all_matches, sample_scanned = await _scan(
-            bucket, monitor.prefix or "", monitor.keyword, monitor.match_mode
+            bucket,
+            monitor.prefix or "",
+            monitor.keyword,
+            monitor.match_mode,
+            recursive=bool(getattr(monitor, "recursive", True)),
+            debug_verbose=True,
         )
         # Per-file debug: log every matched key with the raw and normalized
         # last_modified so the operator can see exactly what oss2 returned

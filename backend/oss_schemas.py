@@ -18,6 +18,10 @@ class OssMonitorBase(BaseModel):
     keyword: str
     match_mode: str = "contains"
     expected_present: bool = True
+    # Whether to recurse into subdirectories under prefix. False = direct
+    # children only (uses OSS delimiter='/'), True = recursive. Default True
+    # for backward compatibility.
+    recursive: bool = True
     # Optional freshness window. If set, the matched file's last_modified
     # must be >= now() - max_age_hours. NULL disables freshness check.
     max_age_hours: Optional[int] = Field(default=None, ge=1, le=8760)
@@ -48,6 +52,7 @@ class OssMonitorUpdate(BaseModel):
     keyword: Optional[str] = None
     match_mode: Optional[str] = None
     expected_present: Optional[bool] = None
+    recursive: Optional[bool] = None
     max_age_hours: Optional[int] = Field(default=None, ge=1, le=8760)
     failure_threshold: Optional[int] = None
     interval_seconds: Optional[int] = None
@@ -77,6 +82,7 @@ class OssMonitorResponse(BaseModel):
     keyword: str
     match_mode: str
     expected_present: bool
+    recursive: bool
     max_age_hours: Optional[int] = None
     failure_threshold: int
     interval_seconds: int

@@ -36,6 +36,9 @@ class OssMonitor(Base):
     keyword = Column(String, nullable=False)
     match_mode = Column(String, nullable=False, default="contains")  # 'contains' | 'regex'
     expected_present = Column(Boolean, nullable=False, default=True)
+    # Whether to recurse into subdirectories under prefix. False = list only
+    # direct children (OSS delimiter='/'), True = recursive (default).
+    recursive = Column(Boolean, nullable=False, default=True)
     # Optional freshness check: if set, the matched file's last_modified must
     # be >= now() - max_age_hours. NULL = no freshness check.
     max_age_hours = Column(Integer, nullable=True)
