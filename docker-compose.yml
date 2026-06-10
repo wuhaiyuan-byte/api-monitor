@@ -25,6 +25,10 @@ services:
       DATABASE_URL: postgresql+asyncpg://apimon:apimon123@db:5432/apimon
     ports:
       - "8000:8000"
+      # Fallback ports for networks where 8000/8088 are filtered but other
+      # common ports aren't. Pick whichever works from your client machine.
+      - "9876:8000"   # alternate HTTP port (apimonitor)
+      - "9877:8000"   # alt 2 — remap if 9876 also blocked on your network
     volumes:
       - ./backend:/app/backend
       - ./frontend:/app/frontend   # live frontend — rsync index.html and refresh, no rebuild
