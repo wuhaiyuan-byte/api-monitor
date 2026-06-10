@@ -71,9 +71,25 @@ async def get_settings(session: AsyncSession = Depends(get_session)):
         "recipient_groups": groups,
     }
 
+    feishu_config = {
+        "enabled": settings.get("feishu_enabled", "false") == "true",
+        "webhook_url": settings.get("feishu_webhook_url", ""),
+        "alert_on_status": settings.get("feishu_alert_on_status", "true") == "true",
+        "alert_on_latency": settings.get("feishu_alert_on_latency", "true") == "true",
+        "alert_on_body": settings.get("feishu_alert_on_body", "false") == "true",
+        "alert_on_timeout": settings.get("feishu_alert_on_timeout", "true") == "true",
+        "alert_on_recovery": settings.get("feishu_alert_on_recovery", "false") == "true",
+        "repeat_suppress_minutes": int(settings.get("feishu_repeat_suppress_minutes", "10")),
+        "test_last_at": settings.get("feishu_test_last_at", ""),
+        "test_last_status": settings.get("feishu_test_last_status", ""),
+        "test_last_error": settings.get("feishu_test_last_error", ""),
+    }
+
     return {
         "email_enabled": email_config["enabled"],
-        "email_config": email_config
+        "email_config": email_config,
+        "feishu_enabled": feishu_config["enabled"],
+        "feishu_config": feishu_config,
     }
 
 
@@ -194,6 +210,81 @@ async def _record_test_result(session: AsyncSession, status: str, error: str):
         "email_test_last_at": now_iso,
         "email_test_last_status": status,
         "email_test_last_error": error,
+    }
+    for key, value in fields.items():
+        result = await session.execute(select(Settings).where(Settings.key == key))
+        existing = result.scalar_one_or_none()
+        if existing:
+            existing.value = value
+            existing.updated_at = datetime.utcnow()
+        else:
+            session.add(Settings(key=key, value=value))
+    await session.commit()
+
+
+# ---------------------------------------------------------------------------
+# Feishu (Lark) custom bot webhook
+# ---------------------------------------------------------------------------
+from tasks import _send_feishu_sync  # reuse the sync sender
+
+
+@router.post("/settings/feishu")
+async def save_feishu_settings(
+    feishu_config: dict,
+    session: AsyncSession = Depends(get_session),
+):
+    settings_to_save = {
+        "feishu_enabled": str(feishu_config.get("enabled", False)).lower(),
+        "feishu_webhook_url": feishu_config.get("webhook_url", ""),
+        "feishu_alert_on_status": str(feishu_config.get("alert_on_status", True)).lower(),
+        "feishu_alert_on_latency": str(feishu_config.get("alert_on_latency", True)).lower(),
+        "feishu_alert_on_body": str(feishu_config.get("alert_on_body", False)).lower(),
+        "feishu_alert_on_timeout": str(feishu_config.get("alert_on_timeout", True)).lower(),
+        "feishu_alert_on_recovery": str(feishu_config.get("alert_on_recovery", False)).lower(),
+        "feishu_repeat_suppress_minutes": str(feishu_config.get("repeat_suppress_minutes", 10)),
+    }
+    for key, value in settings_to_save.items():
+        result = await session.execute(select(Settings).where(Settings.key == key))
+        existing = result.scalar_one_or_none()
+        if existing:
+            existing.value = value
+            existing.updated_at = datetime.utcnow()
+        else:
+            session.add(Settings(key=key, value=value))
+    await session.commit()
+    return {"message": "Feishu settings saved"}
+
+
+@router.post("/settings/feishu/test")
+async def test_feishu_settings(
+    feishu_config: dict,
+    session: AsyncSession = Depends(get_session),
+):
+    url = feishu_config.get("webhook_url", "")
+    if not url:
+        await _record_feishu_test_result(session, "failed", "webhook_url 为空")
+        raise HTTPException(status_code=400, detail="webhook_url 为空")
+    ok, err = _send_feishu_sync(
+        url,
+        "✅ API Monitor 飞书测试消息",
+        "**这是一条测试消息。**\n\n"
+        "如果你在飞书里看到这条卡片，说明 webhook 配置正确。\n\n"
+        "时间: " + datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S') + " UTC",
+    )
+    if ok:
+        await _record_feishu_test_result(session, "success", "")
+        return {"message": "Feishu test message sent successfully"}
+    else:
+        await _record_feishu_test_result(session, "failed", err)
+        raise HTTPException(status_code=400, detail=f"Feishu test failed: {err}")
+
+
+async def _record_feishu_test_result(session: AsyncSession, status: str, error: str):
+    now_iso = datetime.utcnow().isoformat()
+    fields = {
+        "feishu_test_last_at": now_iso,
+        "feishu_test_last_status": status,
+        "feishu_test_last_error": error,
     }
     for key, value in fields.items():
         result = await session.execute(select(Settings).where(Settings.key == key))

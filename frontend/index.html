@@ -902,6 +902,77 @@
                         </el-form-item>
                     </el-form>
                 </div>
+
+                <!-- Feishu Bot -->
+                <div class="card" style="margin-bottom: 20px;">
+                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                        <span class="card-title">📨 飞书机器人 (Feishu Bot)</span>
+                        <el-switch v-model="feishuSettings.enabled" @change="saveFeishuSettings" style="--el-switch-on-color: var(--accent);"></el-switch>
+                    </div>
+                    <div style="font-size: 12px; color: var(--text-muted); padding-top: 4px; margin-bottom: 12px;">
+                        {{ feishuSettings.enabled ? '✅ 飞书告警已启用（与邮件并行发送）' : '⏸️ 飞书告警已停用' }}
+                    </div>
+                    <el-form label-position="top" class="settings-form">
+                        <el-form-item label="Webhook URL">
+                            <el-input v-model="feishuSettings.webhook_url" :disabled="!feishuSettings.enabled" @blur="saveFeishuSettings" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/..."></el-input>
+                            <div style="color: var(--text-muted); font-size: 12px; margin-top: 4px;">
+                                飞书群机器人 → 添加机器人 → 自定义机器人 → 复制 webhook URL
+                            </div>
+                        </el-form-item>
+
+                        <el-form-item label="告警触发条件">
+                            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 16px;">
+                                <label style="display: flex; align-items: center; gap: 6px;">
+                                    <el-switch v-model="feishuSettings.alert_on_status" :disabled="!feishuSettings.enabled" @change="saveFeishuSettings"></el-switch>
+                                    <span style="font-size: 13px;">状态码异常</span>
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 6px;">
+                                    <el-switch v-model="feishuSettings.alert_on_latency" :disabled="!feishuSettings.enabled" @change="saveFeishuSettings"></el-switch>
+                                    <span style="font-size: 13px;">延迟异常</span>
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 6px;">
+                                    <el-switch v-model="feishuSettings.alert_on_body" :disabled="!feishuSettings.enabled" @change="saveFeishuSettings"></el-switch>
+                                    <span style="font-size: 13px;">内容不匹配</span>
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 6px;">
+                                    <el-switch v-model="feishuSettings.alert_on_timeout" :disabled="!feishuSettings.enabled" @change="saveFeishuSettings"></el-switch>
+                                    <span style="font-size: 13px;">请求超时</span>
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 6px;">
+                                    <el-switch v-model="feishuSettings.alert_on_recovery" :disabled="!feishuSettings.enabled" @change="saveFeishuSettings"></el-switch>
+                                    <span style="font-size: 13px;">恢复通知</span>
+                                </label>
+                            </div>
+                        </el-form-item>
+
+                        <el-form-item label="重复抑制 (分钟)">
+                            <el-input-number v-model="feishuSettings.repeat_suppress_minutes" :disabled="!feishuSettings.enabled" :min="0" :max="1440" style="width: 100%;" @change="saveFeishuSettings"></el-input-number>
+                            <div style="color: var(--text-muted); font-size: 12px; margin-top: 4px;">
+                                0 = 不抑制。同一监控项同一告警类型在此时间窗内只发一次。复用邮件抑制窗口。
+                            </div>
+                        </el-form-item>
+
+                        <el-form-item label="测试">
+                            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                                <button type="button" class="btn btn-ghost" :disabled="!feishuSettings.enabled || !feishuSettings.webhook_url || testingFeishu" @click="testFeishuSettings">
+                                    {{ testingFeishu ? '发送中...' : '发送测试消息' }}
+                                </button>
+                                <span v-if="feishuSettings.test_last_at" style="font-size: 12px; color: var(--text-muted);">
+                                    上次: {{ formatDate(feishuSettings.test_last_at) }}
+                                    <span v-if="feishuSettings.test_last_status === 'success'" class="tag success" style="margin-left: 6px;">✅ 成功</span>
+                                    <span v-else-if="feishuSettings.test_last_status === 'failed'" class="tag danger" style="margin-left: 6px;">❌ 失败</span>
+                                </span>
+                            </div>
+                            <div v-if="feishuSettings.test_last_status === 'failed' && feishuSettings.test_last_error" style="color: var(--danger); font-size: 12px; margin-top: 4px;">
+                                {{ feishuSettings.test_last_error }}
+                            </div>
+                        </el-form-item>
+
+                        <el-form-item>
+                            <button type="button" class="btn btn-ghost" @click="saveFeishuSettings">💾 保存设置</button>
+                        </el-form-item>
+                    </el-form>
+                </div>
             </div>
         </main>
 
@@ -1472,6 +1543,25 @@
                     recipient_groups: [{ name: '默认', emails: [], is_default: true }]
                 });
 
+                // Feishu (Lark) bot global alert channel. Independent of
+                // email — both fire in parallel when their respective
+                // enabled switches are on. Cooldown is shared so we don't
+                // double-spam.
+                const feishuSettings = reactive({
+                    enabled: false,
+                    webhook_url: '',
+                    alert_on_status: true,
+                    alert_on_latency: true,
+                    alert_on_body: false,
+                    alert_on_timeout: true,
+                    alert_on_recovery: false,
+                    repeat_suppress_minutes: 10,
+                    test_last_at: '',
+                    test_last_status: '',
+                    test_last_error: ''
+                });
+                const testingFeishu = ref(false);
+
                 const testing = ref(false);
                 const addingEmailToGroup = ref(-1);
                 const newEmailDraft = ref('');
@@ -1644,8 +1734,35 @@ function toBeijingDate(dateStr) {
                             }
                             Object.assign(emailSettings, cfg);
                         }
+                        if (response.data.feishu_config) {
+                            Object.assign(feishuSettings, response.data.feishu_config);
+                        }
                     } catch (error) {
                         console.error('Failed to fetch email settings:', error);
+                    }
+                }
+
+                async function saveFeishuSettings() {
+                    try {
+                        await axios.post(`${API_BASE}/api/settings/feishu`, { ...feishuSettings });
+                    } catch (error) {
+                        console.error('Failed to save feishu settings:', error);
+                    }
+                }
+
+                async function testFeishuSettings() {
+                    if (testingFeishu.value) return;
+                    testingFeishu.value = true;
+                    try {
+                        const res = await axios.post(`${API_BASE}/api/settings/feishu/test`, { ...feishuSettings });
+                        ElMessage.success(res.data.message || '飞书测试消息已发送');
+                        await fetchEmailSettings();
+                    } catch (error) {
+                        const detail = error.response?.data?.detail || error.message;
+                        ElMessage.error('发送失败: ' + detail);
+                        await fetchEmailSettings();
+                    } finally {
+                        testingFeishu.value = false;
                     }
                 }
 
@@ -2313,6 +2430,7 @@ function toBeijingDate(dateStr) {
                     websocketStatus, alertFilter, filteredAlerts,
                     detailDialogVisible, chartTimeRange, currentChartMonitorId, formDialogVisible, isEditMode, formSubmitting, formSending,
                     activeFormTab, monitorForm, responsePanel, emailSettings,
+                    feishuSettings, testingFeishu,
                     testing, addingEmailToGroup, newEmailDraft, newEmailError,
                     editingGroupIndex, groupNameDraft,
                     // OSS module
@@ -2324,6 +2442,7 @@ function toBeijingDate(dateStr) {
                     ossCheckNow, openOssDetail, openOssCheckDebug, ossTestConnection,
                     getMonitorStatus, getResponseTimeClass, formatRelativeTime, formatDate,
                     switchToAlerts, switchToSettings, fetchEmailSettings, saveEmailSettings, testEmailSettings,
+                    saveFeishuSettings, testFeishuSettings,
                     startAddEmail, cancelAddEmail, confirmAddEmail, removeEmailFromGroup,
                     addRecipientGroup, removeRecipientGroup,
                     startEditGroupName, finishEditGroupName, cancelEditGroupName,

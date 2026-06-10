@@ -115,6 +115,22 @@ class EmailSettings(BaseModel):
     use_tls: bool = True
 
 
+class FeishuSettings(BaseModel):
+    enabled: bool = False
+    webhook_url: str = ""
+    alert_on_status: bool = True
+    alert_on_latency: bool = True
+    alert_on_body: bool = False
+    alert_on_timeout: bool = True
+    alert_on_recovery: bool = False
+    repeat_suppress_minutes: int = 10
+    test_last_at: str = ""
+    test_last_status: str = ""
+    test_last_error: str = ""
+
+
 class SettingsResponse(BaseModel):
     email_enabled: bool = False
     email_config: EmailSettings = EmailSettings()
+    feishu_enabled: bool = False
+    feishu_config: FeishuSettings = FeishuSettings()

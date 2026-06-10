@@ -3,6 +3,7 @@ import re
 import json
 import statistics
 import smtplib
+import asyncio
 from datetime import datetime, timedelta
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy import select, update
@@ -122,65 +123,190 @@ def _send_email_sync(settings: dict, subject: str, body: str):
         return False, str(e), []
 
 
+def _send_feishu_sync(webhook_url: str, title: str, markdown_body: str) -> tuple:
+    """Synchronous Feishu (Lark) custom bot webhook send.
+
+    Uses the interactive card format so the message renders nicely in
+    Feishu/Lark with a colored header and markdown body.
+
+    Returns (ok: bool, error: str).
+    """
+    if not webhook_url or "feishu.cn" not in webhook_url and "larksuite.com" not in webhook_url:
+        return False, "webhook URL 不是飞书/钉钉机器人地址"
+    payload = {
+        "msg_type": "interactive",
+        "card": {
+            "header": {
+                "title": {
+                    "tag": "plain_text",
+                    "content": title[:60],
+                }
+            },
+            "elements": [
+                {
+                    "tag": "div",
+                    "text": {
+                        "tag": "lark_md",
+                        "content": markdown_body[:4000],
+                    },
+                },
+                {
+                    "tag": "note",
+                    "elements": [
+                        {
+                            "tag": "plain_text",
+                            "content": "API Monitor  ·  " + datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S') + " UTC",
+                        }
+                    ],
+                },
+            ],
+        },
+    }
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            r = client.post(webhook_url, json=payload)
+            if r.status_code != 200:
+                return False, f"HTTP {r.status_code}: {r.text[:200]}"
+            data = r.json()
+            # Feishu returns {"StatusCode":0, ...} on success. Some
+            # tenants also return {"code":0,"msg":"success"}.
+            if data.get("StatusCode") not in (0, None) and data.get("code") not in (0, None):
+                return False, f"飞书返回错误: {data.get('msg') or data}"
+            return True, ""
+    except Exception as e:
+        return False, str(e)[:300]
+
+
 async def send_alert_email(monitor_name: str, alert_type: str, description: str,
                            monitor_id: int = None, is_recovery: bool = False):
-    async with async_session_maker() as session:
-        result = await session.execute(select(Settings).where(Settings.key == "email_enabled"))
-        enabled_setting = result.scalar_one_or_none()
-        if not enabled_setting or enabled_setting.value != "true":
-            return
+    """Send an alert through ALL enabled channels: email + Feishu bot.
 
+    Each channel is independent — a failure in one does not block the
+    others. Cooldown and per-type enable checks are evaluated per
+    channel against the same Settings row set.
+    """
+    async with async_session_maker() as session:
         result = await session.execute(select(Settings))
         settings = {s.key: s.value for s in result.scalars().all()}
 
-        if is_recovery:
-            if settings.get("email_alert_on_recovery", "false") != "true":
-                return
-        else:
-            if not _is_alert_type_enabled(settings, alert_type):
-                print(f"Alert email skipped: type {alert_type} disabled")
-                return
-            if monitor_id is not None and _is_in_cooldown(monitor_id, alert_type, settings):
-                print(f"Alert email skipped: {monitor_name} {alert_type} in cooldown")
-                return
+        # Common pre-conditions
+        is_recovery = is_recovery
+        type_enabled = _is_alert_type_enabled(settings, alert_type)
+        in_cooldown = (
+            monitor_id is not None
+            and _is_in_cooldown(monitor_id, alert_type, settings)
+        )
+
+        # Build common message content
+        alert_type_map = {
+            "status": "状态异常",
+            "latency": "延迟异常",
+            "body_mismatch": "内容异常",
+            "timeout": "请求超时",
+            "oss_missing": "OSS 文件缺失",
+            "oss_unexpected": "OSS 文件异常出现",
+        }
+        type_label = alert_type_map.get(alert_type, alert_type)
+        now_str = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
 
         if is_recovery:
             subject = f"[API Monitor] 恢复通知 - {monitor_name}"
-            body = f"""API Monitor 恢复通知
+            email_body = f"""API Monitor 恢复通知
 
 监控项: {monitor_name}
 状态: 已恢复正常
-时间: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}
+时间: {now_str}
 
 告警已解除，无需处理。
 """
+            feishu_title = f"✅ API Monitor 恢复 - {monitor_name}"
+            feishu_md = (
+                f"**{monitor_name}** 已恢复正常\n\n"
+                f"- 状态: ✅ 恢复\n"
+                f"- 时间: {now_str} UTC\n\n"
+                f"告警已解除，无需处理。"
+            )
         else:
-            alert_type_map = {
-                "status": "状态异常",
-                "latency": "延迟异常",
-                "body_mismatch": "内容异常",
-                "timeout": "请求超时",
-                "oss_missing": "OSS 文件缺失",
-                "oss_unexpected": "OSS 文件异常出现",
-            }
             subject = f"[API Monitor] 告警通知 - {monitor_name}"
-            body = f"""API Monitor 告警通知
+            email_body = f"""API Monitor 告警通知
 
 监控项: {monitor_name}
-告警类型: {alert_type_map.get(alert_type, alert_type)}
+告警类型: {type_label}
 告警描述: {description}
-时间: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}
+时间: {now_str}
 
 请及时处理。
 """
+            feishu_title = f"🚨 API Monitor 告警 - {monitor_name}"
+            feishu_md = (
+                f"**监控项:** {monitor_name}\n"
+                f"**告警类型:** {type_label}\n"
+                f"**告警描述:** {description}\n"
+                f"**时间:** {now_str} UTC\n\n"
+                f"请及时处理。"
+            )
 
-        ok, err, _ = _send_email_sync(settings, subject, body)
-        if ok:
-            print(f"Alert email sent for {monitor_name} ({alert_type})")
-            if not is_recovery and monitor_id is not None:
-                _mark_alert_sent(monitor_id, alert_type)
-        else:
-            print(f"Failed to send alert email: {err}")
+        # --- Email channel ---
+        email_enabled = settings.get("email_enabled", "false") == "true"
+        if email_enabled:
+            if is_recovery:
+                if settings.get("email_alert_on_recovery", "false") != "true":
+                    pass  # recovery not enabled
+                else:
+                    ok, err, _ = _send_email_sync(settings, subject, email_body)
+                    if ok:
+                        print(f"Alert email sent for {monitor_name} ({alert_type})")
+                    else:
+                        print(f"Failed to send alert email: {err}")
+            else:
+                if not type_enabled:
+                    print(f"Alert email skipped: type {alert_type} disabled")
+                elif in_cooldown:
+                    print(f"Alert email skipped: {monitor_name} {alert_type} in cooldown")
+                else:
+                    ok, err, _ = _send_email_sync(settings, subject, email_body)
+                    if ok:
+                        print(f"Alert email sent for {monitor_name} ({alert_type})")
+                        if monitor_id is not None:
+                            _mark_alert_sent(monitor_id, alert_type)
+                    else:
+                        print(f"Failed to send alert email: {err}")
+
+        # --- Feishu channel ---
+        feishu_enabled = settings.get("feishu_enabled", "false") == "true"
+        if feishu_enabled:
+            feishu_url = settings.get("feishu_webhook_url", "")
+            if not feishu_url:
+                print("Feishu alert skipped: feishu_enabled but no webhook_url configured")
+            elif is_recovery and settings.get("feishu_alert_on_recovery", "false") != "true":
+                pass
+            elif not is_recovery and not type_enabled:
+                print(f"Feishu alert skipped: type {alert_type} disabled")
+            elif not is_recovery and in_cooldown:
+                print(f"Feishu alert skipped: {monitor_name} {alert_type} in cooldown")
+            else:
+                ok, err = await asyncio.to_thread(
+                    _send_feishu_sync, feishu_url, feishu_title, feishu_md
+                )
+                if ok:
+                    print(f"Feishu alert sent for {monitor_name} ({alert_type})")
+                    if not is_recovery and monitor_id is not None:
+                        _mark_alert_sent(monitor_id, alert_type)
+                else:
+                    print(f"Failed to send feishu alert: {err}")
+
+
+async def _send_feishu_test(webhook_url: str) -> tuple:
+    """One-shot test send to a Feishu bot. Returns (ok, message)."""
+    import asyncio
+    return await asyncio.to_thread(
+        _send_feishu_sync,
+        webhook_url,
+        "✅ API Monitor 测试消息",
+        "**这是一条测试消息。**\n\n"
+        "如果你在飞书里看到这条卡片，说明 webhook 配置正确。\n\n"
+        "时间: " + datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S') + " UTC",
+    )
 
 
 def _get_threshold_for(monitor, alert_type: AlertType) -> int:
