@@ -22,9 +22,9 @@ services:
       db:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql+asyncpg://apimon:apimon123@db:5432/apimon
+      DATABASE_URL=postgresql+asyncpg://apimon:apimon123@db:5432/apimon
     ports:
-      - "8000:8000"
+      - "9876:8000"   # alt host port — operator's network filters 8000/tcp
     volumes:
       - ./backend:/app/backend
       - ./frontend:/app/frontend   # live frontend — rsync index.html and refresh, no rebuild
