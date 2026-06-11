@@ -24,7 +24,7 @@ from database import async_session_maker
 from ws_manager import manager
 
 # Reuse the existing scheduler, not a new one.
-from tasks import scheduler, send_alert_email
+from tasks import scheduler, send_alert_email, now_beijing_str
 
 
 logger = logging.getLogger("oss_tasks")
