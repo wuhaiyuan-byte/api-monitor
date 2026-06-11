@@ -11,6 +11,7 @@ from typing import Optional, List
 
 from models import Settings
 from database import get_session
+from tasks import now_beijing_str
 
 router = APIRouter()
 
@@ -269,7 +270,7 @@ async def test_feishu_settings(
         "✅ API Monitor 飞书测试消息",
         "**这是一条测试消息。**\n\n"
         "如果你在飞书里看到这条卡片，说明 webhook 配置正确。\n\n"
-        "时间: " + datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S') + " UTC",
+        "时间: " + now_beijing_str() + " (北京时间)",
     )
     if ok:
         await _record_feishu_test_result(session, "success", "")

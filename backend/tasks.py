@@ -4,7 +4,7 @@ import json
 import statistics
 import smtplib
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +13,35 @@ from email.mime.multipart import MIMEMultipart
 
 from models import Monitor, CheckResult, Alert, AlertType, Settings
 from database import async_session_maker
+
+
+# ---------------------------------------------------------------------------
+# Display-time helpers
+# ---------------------------------------------------------------------------
+# We store all timestamps in the DB as naive UTC (datetime.utcnow()).
+# For human-facing strings (alert emails, feishu cards, logs) we render
+# in Beijing time (UTC+8) so operators don't have to mentally +8 every
+# time they look at a log line. The DB layer stays UTC for consistency
+# with the frontend's ISO-string parsing.
+BEIJING_TZ = timezone(timedelta(hours=8))
+
+
+def now_beijing_str(fmt: str = "%Y-%m-%d %H:%M:%S") -> str:
+    """Current time in Asia/Shanghai (UTC+8) formatted as a string."""
+    return datetime.now(BEIJING_TZ).strftime(fmt)
+
+
+def fmt_beijing(dt: datetime, fmt: str = "%Y-%m-%d %H:%M:%S") -> str:
+    """Convert a naive-UTC datetime to Beijing-time string.
+
+    Used for DB timestamps (e.g. last_checked_at, last_error) that are
+    stored as naive UTC. Without conversion, the dashboard shows UTC
+    even though the operator is in Beijing."""
+    if dt is None:
+        return "-"
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(BEIJING_TZ).strftime(fmt)
 from ws_manager import manager
 
 
@@ -155,7 +184,7 @@ def _send_feishu_sync(webhook_url: str, title: str, markdown_body: str) -> tuple
                     "elements": [
                         {
                             "tag": "plain_text",
-                            "content": "API Monitor  ·  " + datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S') + " UTC",
+                            "content": "API Monitor  ·  " + now_beijing_str() + " (北京时间)",
                         }
                     ],
                 },
@@ -207,7 +236,7 @@ async def send_alert_email(monitor_name: str, alert_type: str, description: str,
             "oss_unexpected": "OSS 文件异常出现",
         }
         type_label = alert_type_map.get(alert_type, alert_type)
-        now_str = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+        now_str = now_beijing_str()
 
         if is_recovery:
             subject = f"[API Monitor] 恢复通知 - {monitor_name}"
@@ -223,7 +252,7 @@ async def send_alert_email(monitor_name: str, alert_type: str, description: str,
             feishu_md = (
                 f"**{monitor_name}** 已恢复正常\n\n"
                 f"- 状态: ✅ 恢复\n"
-                f"- 时间: {now_str} UTC\n\n"
+                f"- 时间: {now_str} (北京时间)\n\n"
                 f"告警已解除，无需处理。"
             )
         else:
@@ -242,7 +271,7 @@ async def send_alert_email(monitor_name: str, alert_type: str, description: str,
                 f"**监控项:** {monitor_name}\n"
                 f"**告警类型:** {type_label}\n"
                 f"**告警描述:** {description}\n"
-                f"**时间:** {now_str} UTC\n\n"
+                f"**时间:** {now_str} (北京时间)\n\n"
                 f"请及时处理。"
             )
 
@@ -305,7 +334,7 @@ async def _send_feishu_test(webhook_url: str) -> tuple:
         "✅ API Monitor 测试消息",
         "**这是一条测试消息。**\n\n"
         "如果你在飞书里看到这条卡片，说明 webhook 配置正确。\n\n"
-        "时间: " + datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S') + " UTC",
+        "时间: " + now_beijing_str() + " (北京时间)",
     )
 
 

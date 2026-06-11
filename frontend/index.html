@@ -1353,8 +1353,8 @@
                     <div v-if="ossDebugPayload">
                         <!-- Scan metadata -->
                         <div style="background: var(--bg-elevated); padding: 12px; border-radius: var(--radius-sm); margin-bottom: 16px; font-family: 'Berkeley Mono', monospace; font-size: 12px;">
-                            <div><strong>now_utc:</strong> {{ ossDebugPayload.now_utc }}</div>
-                            <div><strong>cutoff_utc:</strong> {{ ossDebugPayload.cutoff_utc || '(不检查时效)' }}</div>
+                            <div><strong>扫⏱ (北京时间):</strong> {{ ossDebugPayload.now_utc ? formatDate(ossDebugPayload.now_utc) : '-' }}</div>
+                            <div><strong>截止⏱ (北京时间):</strong> {{ ossDebugPayload.cutoff_utc ? formatDate(ossDebugPayload.cutoff_utc) : '(不检查时效)' }}</div>
                             <div><strong>recursive:</strong> {{ ossDebugPayload.recursive ? 'true' : 'false' }}</div>
                             <div><strong>scanned:</strong> {{ ossDebugPayload.scanned }} 个对象，<strong>truncated:</strong> {{ ossDebugPayload.truncated }}</div>
                             <div><strong>keyword:</strong> {{ ossDebugPayload.keyword }}  ·  <strong>match_mode:</strong> {{ ossDebugPayload.match_mode }}  ·  <strong>max_age_hours:</strong> {{ ossDebugPayload.max_age_hours || '不检查' }}</div>
@@ -1374,7 +1374,7 @@
                                         <th>#</th>
                                         <th>Key</th>
                                         <th>Matched</th>
-                                        <th>Last-Modified (UTC)</th>
+                                        <th>Last-Modified (北京时间)</th>
                                         <th>Age (h)</th>
                                         <th>Decision</th>
                                     </tr>
@@ -1414,7 +1414,7 @@
                                     <th>#</th>
                                     <th>Key</th>
                                     <th>Matched</th>
-                                    <th>Last-Modified (UTC)</th>
+                                    <th>Last-Modified (北京时间)</th>
                                     <th>Age (h)</th>
                                     <th>Decision</th>
                                 </tr>

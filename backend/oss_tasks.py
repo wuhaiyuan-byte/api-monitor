@@ -239,7 +239,8 @@ async def check_oss_monitor(oss_monitor_id: int):
             f"match_mode={monitor.match_mode} recursive={getattr(monitor, 'recursive', True)} "
             f"max_age_hours={monitor.max_age_hours} "
             f"expected_present={monitor.expected_present} "
-            f"now_utc={datetime.utcnow().isoformat()}",
+            f"now_utc={datetime.utcnow().isoformat()}  "
+            f"now_bj={now_beijing_str()}",
             flush=True,
         )
         matched, first, scanned, truncated, err, all_matches, sample_scanned, all_scanned = await _scan(
@@ -417,6 +418,10 @@ async def check_oss_monitor(oss_monitor_id: int):
                 entry["decision"] = "n/a"
             debug_files.append(entry)
         debug_payload = {
+            # Keep now_utc / cutoff_utc as raw ISO for programmatic
+            # consumption (the freshness check is done in UTC). The
+            # frontend renders these via formatDate() which converts
+            # to Asia/Shanghai before display.
             "now_utc": now_utc.isoformat(),
             "cutoff_utc": cutoff_iso,
             "recursive": bool(getattr(monitor, "recursive", True)),
