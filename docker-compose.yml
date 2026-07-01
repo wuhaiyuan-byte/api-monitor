@@ -8,6 +8,8 @@ services:
       POSTGRES_DB: apimon
     volumes:
       - pgdata:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"   # bind to loopback only — external conn needs ssh tunnel
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U apimon"]
       interval: 5s
