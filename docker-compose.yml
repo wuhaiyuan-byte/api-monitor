@@ -9,7 +9,8 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:
-      - "127.0.0.1:5432:5432"   # bind to loopback only — external conn needs ssh tunnel
+      - "127.0.0.1:5433:5432"   # bind to loopback only — external conn needs ssh tunnel
+                                # (5432 on host is taken by superset-db-1)
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U apimon"]
       interval: 5s
